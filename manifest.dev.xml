@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+           xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+           xsi:type="TaskPaneApp">
+  <Id>12345678-90ab-cdef-1234-567890abcdef</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>Persona Feedback</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Persona Feedback"/>
+  <Description DefaultValue="Run multi-persona reviews with inline comments &amp; scores"/>
+  <IconUrl DefaultValue="https://YOUR-VERCEL-APP.vercel.app/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://YOUR-VERCEL-APP.vercel.app/assets/icon-80.png"/>
+  <SupportUrl DefaultValue="https://example.local/"/>
+  <AppDomains>
+    <AppDomain>https://YOUR-VERCEL-APP.vercel.app</AppDomain>
+    <AppDomain>https://openrouter.ai</AppDomain>
+    <AppDomain>http://127.0.0.1</AppDomain>
+    <AppDomain>https://localhost</AppDomain>
+  </AppDomains>
+  <Hosts>
+    <Host Name="Document"/>
+  </Hosts>
+  <Requirements>
+    <Sets DefaultMinVersion="1.1">
+      <Set Name="WordApi"/>
+    </Sets>
+  </Requirements>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://YOUR-VERCEL-APP.vercel.app/taskpane.html"/>
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+  <VersionOverrides xsi:type="ov:VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="ov:Document">
+        <DesktopFormFactor>
+          <ExtensionPoint xsi:type="ov:PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="PersonaFeedback.Group">
+                <Label resid="customTabLabel"/>
+                <Control xsi:type="ov:Button" id="PersonaFeedback.OpenPane" enabled="true">
+                  <Label resid="paneButtonLabel"/>
+                  <Supertip>
+                    <Title resid="paneButtonTitle"/>
+                    <Description resid="paneButtonDesc"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="icon16"/>
+                    <bt:Image size="32" resid="icon32"/>
+                    <bt:Image size="80" resid="icon80"/>
+                  </Icon>
+                  <Action xsi:type="ov:ShowTaskpane">
+                    <SourceLocation resid="TaskPane.Url"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+    <Resources>
+      <bt:Images>
+        <bt:Image id="icon16" DefaultValue="https://YOUR-VERCEL-APP.vercel.app/assets/icon-32.png"/>
+        <bt:Image id="icon32" DefaultValue="https://YOUR-VERCEL-APP.vercel.app/assets/icon-32.png"/>
+        <bt:Image id="icon80" DefaultValue="https://YOUR-VERCEL-APP.vercel.app/assets/icon-80.png"/>
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="TaskPane.Url" DefaultValue="https://YOUR-VERCEL-APP.vercel.app/taskpane.html"/>
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="customTabLabel" DefaultValue="Persona Feedback"/>
+        <bt:String id="paneButtonLabel" DefaultValue="Open Personas"/>
+        <bt:String id="paneButtonTitle" DefaultValue="Open persona feedback task pane"/>
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="paneButtonDesc" DefaultValue="Run multi‑persona reviews with inline comments &amp; scores."/>
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>
