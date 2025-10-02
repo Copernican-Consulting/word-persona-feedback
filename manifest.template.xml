@@ -5,8 +5,8 @@
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
 
-  <!-- If validation still caches, you can change this GUID -->
-  <Id>12345678-90ab-cdef-1234-567890abcdef</Id>
+  <!-- New real GUID -->
+  <Id>7f6f6f1a-2e85-4a6c-9b5c-3f1d2d7b0c3a</Id>
 
   <Version>1.0.0.0</Version>
   <ProviderName>Persona Feedback</ProviderName>
