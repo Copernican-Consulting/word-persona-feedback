@@ -6,12 +6,16 @@
   "config": {
     "baseUrl": "https://YOUR-VERCEL-APP.vercel.app"
   },
+
   "scripts": {
     "start": "webpack serve --mode development --port 3000",
     "build": "webpack --mode production",
     "manifest": "node scripts/make-manifest.cjs",
-    "build:vercel": "npm run build && npm run manifest"
-  },
+    "postbuild": "npm run manifest && node -e \"require('fs').copyFileSync('manifest.dev.xml','dist/manifest.xml')\"",
+    "build:vercel": "npm run build && npm run postbuild"
+  }
+
+,
   "dependencies": {},
   "devDependencies": {
     "@types/office-js": "^1.0.389",
