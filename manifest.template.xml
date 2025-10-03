@@ -5,9 +5,7 @@
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
 
-  <!-- Keep the same GUID that validated everything else -->
   <Id>1d9b7c6e-6e5f-4f0a-9e5d-8d6b9c2fa7d1</Id>
-
   <Version>1.0.0.0</Version>
   <ProviderName>Persona Feedback</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
@@ -47,20 +45,20 @@
             <ov:OfficeTab id="TabHome">
               <ov:Group id="PersonaFeedback.Group">
                 <ov:Label resid="customTabLabel"/>
-                <!-- REQUIRED group-level icon before first control -->
+                <!-- Group-level icon is required in this schema -->
                 <ov:Icon>
                   <bt:Image size="16" resid="icon16"/>
                   <bt:Image size="32" resid="icon32"/>
                   <bt:Image size="80" resid="icon80"/>
                 </ov:Icon>
 
-                <ov:Control xsi:type="ov:Button" id="PersonaFeedback.OpenPane" enabled="true">
+                <!-- Removed enabled="true" (not allowed in V1_0) -->
+                <ov:Control xsi:type="ov:Button" id="PersonaFeedback.OpenPane">
                   <ov:Label resid="paneButtonLabel"/>
                   <ov:Supertip>
                     <ov:Title resid="paneButtonTitle"/>
                     <ov:Description resid="paneButtonDesc"/>
                   </ov:Supertip>
-                  <!-- Control-level icon (kept) -->
                   <ov:Icon>
                     <bt:Image size="16" resid="icon16"/>
                     <bt:Image size="32" resid="icon32"/>
