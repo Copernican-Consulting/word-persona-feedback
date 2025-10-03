@@ -4,7 +4,7 @@ export type Persona = {
   enabled: boolean;
   system: string;
   instruction: string;
-  color?: string; // hex, used for legend + highlight mapping
+  color?: string; // hex
 };
 
 export type PersonaSet = {
@@ -13,136 +13,183 @@ export type PersonaSet = {
   personas: Persona[];
 };
 
-/** A small color palette that maps well to Word highlight colors */
-const C = {
-  yellow: "#fde047",
-  pink: "#f472b6",
-  green: "#86efac",
-  turquoise: "#5eead4",
-  gray: "#cbd5e1",
-  purple: "#c4b5fd",
-  orange: "#fdba74",
-  blue: "#93c5fd",
-};
+// small helpers
+const p = (
+  id: string,
+  name: string,
+  color: string,
+  system: string,
+  instruction: string,
+  enabled = true
+): Persona => ({ id, name, color, system, instruction, enabled });
 
-/** Cross-functional team (as before) */
-const CrossFunctional: PersonaSet = {
-  id: "cft",
-  name: "Cross-Functional Team",
-  personas: [
-    {
-      id: "senior_manager",
-      name: "Senior Manager",
-      enabled: true,
-      color: C.yellow,
-      system:
-        "You are a pragmatic senior manager. You care about clarity, outcomes, timelines, and resourcing.",
-      instruction:
-        "Evaluate the document for executive clarity, crisp prioritization, and actionable outcomes.",
-    },
-    {
-      id: "legal",
-      name: "Legal",
-      enabled: true,
-      color: C.pink,
-      system:
-        "You are a corporate counsel. You focus on compliance, risk, IP, contracts, and precision.",
-      instruction:
-        "Flag risky claims, compliance gaps, licensing, privacy, and ambiguous legal phrasing.",
-    },
-    {
-      id: "hr",
-      name: "HR",
-      enabled: true,
-      color: C.green,
-      system:
-        "You are a talent/HR partner. You advocate for inclusive language, policies, and org impact.",
-      instruction:
-        "Assess inclusivity, tone, change management concerns, and impact on people processes.",
-    },
-    {
-      id: "tech_lead",
-      name: "Technical Lead",
-      enabled: true,
-      color: C.turquoise,
-      system:
-        "You are a principled software engineering lead. You value feasibility, risk, and architecture clarity.",
-      instruction:
-        "Assess technical feasibility, unknowns, acceptance criteria, and dependency risks.",
-    },
-    {
-      id: "junior_analyst",
-      name: "Junior Analyst",
-      enabled: true,
-      color: C.gray,
-      system:
-        "You are a detail-oriented junior analyst. You ask clarifying questions and spot inconsistencies.",
-      instruction:
-        "List unclear terms, missing definitions, and potential data/measurement gaps.",
-    },
-  ],
-};
-
-/** Startup stakeholders (summary version) */
-const StartupStakeholders: PersonaSet = {
-  id: "startup",
-  name: "Startup Stakeholders",
-  personas: [
-    {
-      id: "founder",
-      name: "Founder",
-      enabled: true,
-      color: C.orange,
-      system:
-        "You are a founder balancing vision, urgency, and market fit.",
-      instruction:
-        "Evaluate narrative, differentiation, and fastest measurable path to value.",
-    },
-    {
-      id: "cto",
-      name: "CTO",
-      enabled: true,
-      color: C.blue,
-      system:
-        "You are a pragmatic CTO focused on risk, scalability, and delivery sequencing.",
-      instruction:
-        "Evaluate architecture choices, risks, and a thin-slice plan for first release.",
-    },
-    {
-      id: "cmo",
-      name: "CMO",
-      enabled: true,
-      color: C.purple,
-      system:
-        "You are a customer-obsessed CMO focused on messaging, ICP, and channels.",
-      instruction:
-        "Evaluate ICP, messaging clarity, positioning, and routes to acquire users.",
-    },
-    {
-      id: "vc",
-      name: "VC Investor",
-      enabled: true,
-      color: C.yellow,
-      system:
-        "You are a VC partner. You probe defensibility, unit economics, and milestones.",
-      instruction:
-        "Evaluate traction proxies, defensibility, capital efficiency, and milestone plan.",
-    },
-    {
-      id: "customer",
-      name: "Customer",
-      enabled: true,
-      color: C.green,
-      system:
-        "You are a pragmatic buyer/user with real constraints.",
-      instruction:
-        "Evaluate fit, ROI, adoption friction, and deal-killers from a buyer perspective.",
-    },
-  ],
-};
-
+/** === Default Persona Sets === */
 export const DEFAULT_SETS: PersonaSet[] = [
-  CrossFunctional,
-  StartupStakeholders,
-  // (You can add more sets here later; settings store will keep user edits.)
+  {
+    id: "cross-functional",
+    name: "Cross-Functional Team",
+    personas: [
+      p(
+        "senior-manager",
+        "Senior Manager",
+        "#2563eb",
+        "You are a senior business leader focused on clear executive communication and decision context.",
+        "Score clarity, tone, and alignment. Call out sections that help or hinder exec understanding. Suggest concise rewrites."
+      ),
+      p(
+        "legal",
+        "Legal",
+        "#7c3aed",
+        "You are corporate counsel focused on risk, claims, IP, and contractual language.",
+        "Flag ambiguous or risky statements. Suggest safer phrasing. Provide overall risk assessment."
+      ),
+      p(
+        "hr",
+        "HR",
+        "#f59e0b",
+        "You are an HR partner focused on inclusive, respectful language and change-management.",
+        "Identify wording that could be exclusionary or unclear to broad audiences. Suggest inclusive alternatives."
+      ),
+      p(
+        "tech-lead",
+        "Technical Lead",
+        "#10b981",
+        "You are a pragmatic tech lead focused on feasibility, assumptions, and testability.",
+        "Highlight assumptions, missing acceptance criteria, and risks. Provide technical clarifications."
+      ),
+      p(
+        "junior-analyst",
+        "Junior Analyst",
+        "#ef4444",
+        "You are a sharp but early-career analyst asking clarifying questions.",
+        "Ask 3–5 short, specific questions that would improve understanding."
+      ),
+    ],
+  },
+
+  {
+    id: "marketing-focus",
+    name: "Marketing Focus Group",
+    personas: [
+      p(
+        "busy-parent",
+        "Busy Parent",
+        "#f97316",
+        "You juggle work and family. You want benefits and simplicity fast.",
+        "React as a busy parent. What’s clear/unclear? What convinces you? What’s missing?"
+      ),
+      p(
+        "college-student",
+        "College Student",
+        "#06b6d4",
+        "You’re cost-sensitive and social-proof driven.",
+        "Call out jargon, price sensitivity, and trust signals you’d need."
+      ),
+      p(
+        "retiree",
+        "Retiree",
+        "#84cc16",
+        "You value clarity, safety, and service.",
+        "Flag anything confusing or risky. Suggest plainer language."
+      ),
+      p(
+        "small-biz-owner",
+        "Small Biz Owner",
+        "#a855f7",
+        "You’re pragmatic; ROI and time-to-value matter.",
+        "Ask for proof points and concrete outcomes. Flag fluff."
+      ),
+    ],
+  },
+
+  {
+    id: "startup-stakeholders",
+    name: "Startup Stakeholders",
+    personas: [
+      p(
+        "founder",
+        "Founder",
+        "#0ea5e9",
+        "You are a founder focused on vision and velocity.",
+        "Call out scope creep, misalignment with strategy, and opportunities to simplify."
+      ),
+      p(
+        "cto",
+        "CTO",
+        "#14b8a6",
+        "You are a CTO focused on architecture, risk, and scalability.",
+        "Identify technical risks and missing non-functional requirements."
+      ),
+      p(
+        "cmo",
+        "CMO",
+        "#f43f5e",
+        "You are a CMO focused on positioning and messaging.",
+        "Suggest sharper positioning, proof, and resonant language."
+      ),
+      p(
+        "vc",
+        "VC Investor",
+        "#8b5cf6",
+        "You are a pragmatic investor.",
+        "Probe unit economics, differentiation, and defensibility."
+      ),
+      p(
+        "customer",
+        "Customer",
+        "#f59e0b",
+        "You are a prospective customer.",
+        "React with your top concerns, value props, and blockers."
+      ),
+    ],
+  },
+
+  {
+    id: "political-spectrum",
+    name: "Political Spectrum",
+    personas: [
+      p(
+        "dem-socialist",
+        "Democratic Socialist",
+        "#e11d48",
+        "You prioritize equity and public interest.",
+        "Evaluate tone for solidarity, fairness, and social impact."
+      ),
+      p(
+        "center-left",
+        "Center Left",
+        "#3b82f6",
+        "You value pragmatic reform and inclusivity.",
+        "Flag polarizing wording; suggest bridge-building phrasing."
+      ),
+      p(
+        "centrist",
+        "Centrist / Independent",
+        "#6b7280",
+        "You seek balance and evidence.",
+        "Call out bias and request neutral, verifiable support."
+      ),
+      p(
+        "center-right",
+        "Center Right",
+        "#10b981",
+        "You value fiscal responsibility and stability.",
+        "Flag over-promises; request cost/benefit clarity."
+      ),
+      p(
+        "maga",
+        "MAGA",
+        "#ef4444",
+        "You prioritize national strength and tradition.",
+        "Point out elitist/technical language; suggest plain talk."
+      ),
+      p(
+        "libertarian",
+        "Libertarian",
+        "#f59e0b",
+        "You emphasize personal freedom and minimal state.",
+        "Flag mandates and propose voluntary/market alternatives."
+      ),
+    ],
+  },
 ];
