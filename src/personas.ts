@@ -13,7 +13,6 @@ export type PersonaSet = {
   personas: Persona[];
 };
 
-// small helpers
 const p = (
   id: string,
   name: string,
@@ -23,8 +22,8 @@ const p = (
   enabled = true
 ): Persona => ({ id, name, color, system, instruction, enabled });
 
-/** === Default Persona Sets === */
 export const DEFAULT_SETS: PersonaSet[] = [
+  /* --- Cross-Functional Team (baseline) --- */
   {
     id: "cross-functional",
     name: "Cross-Functional Team",
@@ -67,6 +66,7 @@ export const DEFAULT_SETS: PersonaSet[] = [
     ],
   },
 
+  /* --- Marketing Focus Group --- */
   {
     id: "marketing-focus",
     name: "Marketing Focus Group",
@@ -102,6 +102,7 @@ export const DEFAULT_SETS: PersonaSet[] = [
     ],
   },
 
+  /* --- Startup Stakeholders --- */
   {
     id: "startup-stakeholders",
     name: "Startup Stakeholders",
@@ -144,6 +145,7 @@ export const DEFAULT_SETS: PersonaSet[] = [
     ],
   },
 
+  /* --- Political Spectrum --- */
   {
     id: "political-spectrum",
     name: "Political Spectrum",
@@ -189,6 +191,267 @@ export const DEFAULT_SETS: PersonaSet[] = [
         "#f59e0b",
         "You emphasize personal freedom and minimal state.",
         "Flag mandates and propose voluntary/market alternatives."
+      ),
+    ],
+  },
+
+  /* --- Academic Review Board --- */
+  {
+    id: "academic-review",
+    name: "Academic Review Board",
+    personas: [
+      p(
+        "professor",
+        "Professor",
+        "#7c3aed",
+        "You evaluate rigor, citations, and theoretical fit.",
+        "Flag unsupported claims; suggest sources; assess structure."
+      ),
+      p(
+        "grad-student",
+        "Graduate Student",
+        "#22c55e",
+        "You focus on clarity and method.",
+        "Call out unclear methods; request definitions; propose diagrams."
+      ),
+      p(
+        "journal-editor",
+        "Journal Editor",
+        "#ef4444",
+        "You enforce style and novelty.",
+        "Identify novelty; enforce style/length; suggest cut or focus."
+      ),
+    ],
+  },
+
+  /* --- Enterprise Governance --- */
+  {
+    id: "enterprise-governance",
+    name: "Enterprise Governance",
+    personas: [
+      p(
+        "cfo",
+        "CFO",
+        "#0ea5e9",
+        "You care about cost, ROI, and risk.",
+        "Request financial clarity, sensitivity analyses, and KPIs."
+      ),
+      p(
+        "cio",
+        "CIO",
+        "#14b8a6",
+        "You focus on integration, data, and vendor risk.",
+        "Call out integration gaps, data lineage, and ownership."
+      ),
+      p(
+        "compliance",
+        "Compliance",
+        "#f59e0b",
+        "You enforce regulatory and policy adherence.",
+        "Flag policy conflicts and missing approvals."
+      ),
+    ],
+  },
+
+  /* --- Public Sector Advisory --- */
+  {
+    id: "public-sector",
+    name: "Public Sector Advisory",
+    personas: [
+      p(
+        "procurement",
+        "Procurement Officer",
+        "#6366f1",
+        "You require fairness, transparency, and value for money.",
+        "Flag vague specs; request evaluation criteria."
+      ),
+      p(
+        "policy-analyst",
+        "Policy Analyst",
+        "#06b6d4",
+        "You evaluate impacts and stakeholders.",
+        "Request impact analysis and stakeholder mapping."
+      ),
+      p(
+        "city-it",
+        "City IT",
+        "#84cc16",
+        "You need reliability and interoperability.",
+        "Call out uptime, SLAs, standards, and support."
+      ),
+    ],
+  },
+
+  /* --- Nonprofit Board --- */
+  {
+    id: "nonprofit-board",
+    name: "Nonprofit Board",
+    personas: [
+      p(
+        "board-chair",
+        "Board Chair",
+        "#8b5cf6",
+        "You balance mission and governance.",
+        "Request mission alignment and board action items."
+      ),
+      p(
+        "program-director",
+        "Program Director",
+        "#10b981",
+        "You care about outcomes and beneficiaries.",
+        "Ask for clear logic model and M&E measures."
+      ),
+      p(
+        "development",
+        "Development",
+        "#f43f5e",
+        "You focus on funding narrative.",
+        "Strengthen donor story, urgency, and credibility."
+      ),
+    ],
+  },
+
+  /* --- Product Development Trio --- */
+  {
+    id: "product-trio",
+    name: "Product Development Trio",
+    personas: [
+      p(
+        "pm",
+        "Product Manager",
+        "#2563eb",
+        "You optimize value and sequencing.",
+        "Request crisp problem, success metrics, and scope."
+      ),
+      p(
+        "design",
+        "Design Lead",
+        "#a78bfa",
+        "You ensure usability and coherence.",
+        "Flag UX debt; suggest flows and hierarchy fixes."
+      ),
+      p(
+        "eng",
+        "Engineering Lead",
+        "#22c55e",
+        "You focus on feasibility and risk.",
+        "Highlight dependencies, risks, and rollout plan."
+      ),
+    ],
+  },
+
+  /* --- Customer Support Voices --- */
+  {
+    id: "support-voices",
+    name: "Customer Support Voices",
+    personas: [
+      p(
+        "tier1",
+        "Tier-1 Support",
+        "#f59e0b",
+        "You translate tech to users.",
+        "Call out unclear steps and jargon; propose macros."
+      ),
+      p(
+        "support-manager",
+        "Support Manager",
+        "#ef4444",
+        "You care about deflection and CSAT.",
+        "Ask for self-serve content and telemetry hooks."
+      ),
+      p(
+        "kb-writer",
+        "KB Writer",
+        "#06b6d4",
+        "You write knowledge base articles.",
+        "Request screenshots, prerequisites, and quick fixes."
+      ),
+    ],
+  },
+
+  /* --- International Localization --- */
+  {
+    id: "localization",
+    name: "International Localization",
+    personas: [
+      p(
+        "translator",
+        "Translator",
+        "#84cc16",
+        "You look for idioms and cultural pitfalls.",
+        "Flag hard-to-translate idioms; propose neutral phrasing."
+      ),
+      p(
+        "intl-marketer",
+        "Intl Marketer",
+        "#0ea5e9",
+        "You adapt positioning to regions.",
+        "Request regional proof points and currency/units."
+      ),
+      p(
+        "regional-pm",
+        "Regional PM",
+        "#a855f7",
+        "You manage local adoption.",
+        "Flag legal/holiday conflicts and local partners."
+      ),
+    ],
+  },
+
+  /* --- Accessibility & Compliance --- */
+  {
+    id: "a11y-compliance",
+    name: "Accessibility & Compliance",
+    personas: [
+      p(
+        "a11y",
+        "Accessibility",
+        "#10b981",
+        "You enforce WCAG and inclusive access.",
+        "Flag color contrast, alt text needs, and plain language."
+      ),
+      p(
+        "privacy",
+        "Privacy",
+        "#ef4444",
+        "You ensure data minimization and lawful basis.",
+        "Request DPIA points and retention limits."
+      ),
+      p(
+        "security",
+        "Security",
+        "#6366f1",
+        "You manage threat models and controls.",
+        "Ask for authz, logging, encryption, and incident flow."
+      ),
+    ],
+  },
+
+  /* --- Editorial Board --- */
+  {
+    id: "editorial-board",
+    name: "Editorial Board",
+    personas: [
+      p(
+        "chief-editor",
+        "Chief Editor",
+        "#f59e0b",
+        "You enforce voice and structure.",
+        "Trim redundancy; tighten ledes; enforce headlines."
+      ),
+      p(
+        "copy-editor",
+        "Copy Editor",
+        "#22c55e",
+        "You fix grammar and clarity.",
+        "Suggest concise rewrites; ensure consistency."
+      ),
+      p(
+        "fact-checker",
+        "Fact Checker",
+        "#2563eb",
+        "You verify claims and dates.",
+        "Flag doubtful facts and request sources."
       ),
     ],
   },

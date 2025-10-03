@@ -1,124 +1,91 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
 <head>
-  <meta charset="utf-8" />
+  <meta charset="utf-8"/>
   <title>Persona Feedback</title>
-  <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    :root { color-scheme: light; }
-    body { font-family: Segoe UI, Roboto, Arial, sans-serif; margin: 12px; }
-    h1 { font-size: 16px; margin: 0 0 8px; display:flex; align-items:center; justify-content:space-between; }
-    h3 { margin: 0 0 6px; }
-    .row { margin: 8px 0; }
-    select, input[type=text], input[type=password] { width: 100%; padding: 6px; }
-    input[type=color] { width: 40px; height: 28px; padding: 0; border: 1px solid #e5e7eb; border-radius: 6px; vertical-align: middle; }
-    button { padding: 6px 10px; margin-right: 6px; }
-    .link { color: #2563eb; cursor: pointer; }
-    .muted { color:#6b7280; }
-    .section { border-top:1px solid #e5e7eb; margin-top:12px; padding-top:12px; }
-    .toast { position: fixed; top: 10px; right: 10px; background:#111827; color:#fff; padding:10px 12px; border-radius:8px; display:none; z-index: 9999; }
-    .toast .close { margin-left:8px; cursor:pointer; }
-    .hidden { display:none; }
-    .progress { height:6px; background:#e5e7eb; border-radius:4px; overflow:hidden; }
-    .bar { height:100%; width:0%; background:#2563eb; transition: width .2s ease; }
-    .debug { background:#f9fafb; border:1px solid #e5e7eb; padding:8px; border-radius:8px; max-height:180px; overflow:auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; }
-    .legend { display:flex; gap:8px; flex-wrap:wrap; }
-    .swatch { display:inline-flex; align-items:center; gap:6px; padding:2px 6px; border:1px solid #e5e7eb; border-radius:999px; font-size:12px; background:#fff; }
-    .dot { width:10px; height:10px; border-radius:50%; border:1px solid #d1d5db; }
-    .scorebar { height:8px; background:#e5e7eb; border-radius:4px; overflow:hidden; margin-top:4px; }
-    .scorebar-fill { height:100%; width:0%; background:#2563eb; transition: width .3s ease; }
-    .result-card { border:1px solid #e5e7eb; border-radius:10px; padding:8px; margin-bottom:8px; background:#fff; }
-    .persona-list { margin-top:6px; }
-  </style>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <link rel="stylesheet" href="taskpane.css"/>
 </head>
 <body>
-  <h1>
-    <span>Persona Feedback</span>
-    <span>
-      <button id="exportBtn" title="Export persona report">Export Report</button>
-      <span id="gear" class="link">⚙ Settings</span>
-    </span>
-  </h1>
-
-  <!-- Review view -->
-  <div id="view-review">
-    <div class="row">
-      <label>Personas</label>
-      <select id="personaSet"></select>
-      <div id="personaList" class="persona-list muted"></div>
+  <header class="toolbar">
+    <div class="left">
+      <button id="gear" title="Settings">⚙️ Settings</button>
+      <button id="backToReview" class="hidden">⬅ Back</button>
     </div>
-
-    <div class="row">
-      <button id="runBtn">Run Review</button>
-      <button id="toggleDebug" class="muted">Show Debug</button>
+    <div class="right">
+      <button id="exportBtn" title="Export report">Export</button>
+      <button id="toggleDebug">Show Debug</button>
     </div>
+  </header>
 
-    <div class="section">
-      <h3 style="display:flex;justify-content:space-between;align-items:center;">
-        <span>Status</span>
-        <span class="muted" style="font-weight:normal;">Legend</span>
-      </h3>
-      <div class="legend" id="legend"></div>
-      <div style="margin-top:8px;" class="progress"><div id="progBar" class="bar"></div></div>
-      <div id="personaStatus" style="margin-top:8px;"></div>
-    </div>
+  <main>
+    <section id="view-review">
+      <div class="row">
+        <label>Persona Set</label>
+        <select id="personaSet"></select>
+      </div>
+      <div id="personaList" class="muted" style="margin-bottom:6px;"></div>
+      <div id="legend" class="legend" style="margin-bottom:6px;"></div>
 
-    <div class="section">
-      <h3>Results</h3>
+      <div class="controls" style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;">
+        <button id="runBtn">Run Review</button>
+        <button id="retryBtn">Retry Failed</button>
+        <button id="clearBtn" title="Clear highlights and PF-tagged comments only">Clear PF</button>
+        <button id="clearAllBtn" title="Delete ALL comments (careful!)">Clear ALL</button>
+      </div>
+
+      <div class="progress">
+        <div class="progress-bar"><div id="progBar" style="width:0%"></div></div>
+      </div>
+
+      <div id="personaStatus" style="margin:8px 0;"></div>
       <div id="results"></div>
-    </div>
+    </section>
 
-    <div id="debugPanel" class="section hidden">
-      <h3>Debug</h3>
-      <div id="debugLog" class="debug"></div>
-      <button id="clearDebug" class="muted">Clear</button>
-    </div>
-  </div>
+    <section id="view-settings" class="hidden">
+      <h3>Model</h3>
+      <div class="row">
+        <label>Provider</label>
+        <select id="provider">
+          <option value="openrouter">OpenRouter</option>
+          <option value="ollama">Ollama (local)</option>
+        </select>
+      </div>
+      <div class="row" id="openrouterKeyRow">
+        <label>OpenRouter API Key</label>
+        <input type="password" id="openrouterKey" placeholder="sk-or-v1-..." />
+      </div>
+      <div class="row">
+        <label>Model</label>
+        <input type="text" id="model" placeholder="openrouter/auto or ollama model name"/>
+      </div>
 
-  <!-- Settings view -->
-  <div id="view-settings" class="hidden">
-    <div class="row"><span class="link" id="backToReview">← Back</span></div>
-
-    <h3>Model</h3>
-    <div class="row">
-      <label>Provider</label>
-      <select id="provider">
-        <option value="openrouter">OpenRouter</option>
-        <option value="ollama">Ollama (local)</option>
-      </select>
-    </div>
-    <div class="row" id="openrouterKeyRow">
-      <label>OpenRouter API Key</label>
-      <input type="password" id="openrouterKey" placeholder="sk-or-v1-..." />
-    </div>
-    <div class="row">
-      <label>Model</label>
-      <input type="text" id="model" placeholder="e.g. openrouter/auto or llama3 or debug-stub" />
-    </div>
-
-    <div class="section">
       <h3>Persona Settings</h3>
       <div class="row">
         <label>Persona Set</label>
         <select id="settingsPersonaSet"></select>
       </div>
       <div id="personaEditor"></div>
-      <div class="row">
+      <div style="display:flex;gap:8px;margin-top:8px;">
         <button id="saveSettings">Save Settings</button>
         <button id="restoreDefaults">Restore Default Set</button>
+        <button id="backToReview">Back to Review</button>
       </div>
-    </div>
+    </section>
+
+    <section id="debugPanel" class="hidden" style="margin-top:12px;">
+      <h3>Debug</h3>
+      <div id="debugLog" class="debuglog"></div>
+      <button id="clearDebug">Clear Debug</button>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" style="display:none;">
+    <span id="toastMsg"></span>
+    <span id="toastClose" class="toast-close">✕</span>
   </div>
 
-  <div id="toast" class="toast">
-    <span id="toastMsg">Saved.</span>
-    <span id="toastClose" class="close">✕</span>
-  </div>
-
-  <!-- Office.js must load before your bundle -->
-  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-  <!-- Your bundle -->
   <script src="taskpane.bundle.js"></script>
 </body>
 </html>
