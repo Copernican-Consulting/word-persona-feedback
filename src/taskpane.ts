@@ -3,6 +3,13 @@
 // ------------------------------
 // Types
 // ------------------------------
+
+// Keep highlight colors as a string union to be compatible across Office.js versions
+type HighlightColor =
+  | "yellow" | "pink" | "turquoise" | "red" | "blue" | "green" | "violet"
+  | "darkYellow" | "darkPink" | "darkTurquoise" | "darkRed" | "darkBlue" | "darkGreen" | "darkViolet"
+  | "none";
+
 type Provider = "openrouter" | "ollama";
 
 type Persona = {
@@ -11,7 +18,7 @@ type Persona = {
   name: string;
   system: string;
   instruction: string;
-  color: Word.HighlightColor; // must be from Word enum (string union)
+  color: HighlightColor; // our union type
 };
 
 type PersonaSet = {
@@ -29,7 +36,7 @@ type ProviderSettings = {
 type AppSettings = {
   provider: ProviderSettings;
   personaSetId: string;
-  personaSets: PersonaSet[]; // persisted customizations
+  personaSets: PersonaSet[];
 };
 
 type PersonaRunStatus = "idle" | "running" | "done" | "error";
@@ -46,7 +53,7 @@ type PersonaRunResult = {
     spanEnd: number;
     comment: string;
   }[];
-  raw?: any; // the exact JSON returned
+  raw?: any;
   error?: string;
 };
 
@@ -54,30 +61,15 @@ type PersonaRunResult = {
 // Constants / Defaults
 // ------------------------------
 
-// Word-supported highlight colors (string enum names)
-const WORD_COLORS: Word.HighlightColor[] = [
-  "yellow",
-  "pink",
-  "turquoise",
-  "red",
-  "blue",
-  "green",
-  "violet",
-  "darkYellow",
-  "darkPink",
-  "darkTurquoise",
-  "darkRed",
-  "darkBlue",
-  "darkGreen",
-  "darkViolet",
+const WORD_COLORS: HighlightColor[] = [
+  "yellow", "pink", "turquoise", "red", "blue", "green", "violet",
+  "darkYellow", "darkPink", "darkTurquoise", "darkRed", "darkBlue", "darkGreen", "darkViolet",
 ];
 
-// Utility to pick a deterministic color
-function colorAt(i: number): Word.HighlightColor {
+function colorAt(i: number): HighlightColor {
   return WORD_COLORS[i % WORD_COLORS.length];
 }
 
-// A compact meta-prompt so LLMs return strict JSON
 const META_PROMPT = `
 You are a reviewer. Return ONLY valid JSON matching this schema:
 
@@ -100,7 +92,6 @@ RULES:
 - Keep "global_feedback" ~2-5 sentences.
 `;
 
-// A tiny helper for personas
 function P(name: string, system: string, instruction: string, idx: number): Persona {
   return {
     id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
@@ -112,7 +103,7 @@ function P(name: string, system: string, instruction: string, idx: number): Pers
   };
 }
 
-// ---- Default Persona Sets (restored & expanded) ----
+// ---- Default Persona Sets ----
 const DEFAULT_SETS: PersonaSet[] = [
   {
     id: "cross-functional-team",
@@ -220,25 +211,17 @@ const DEFAULT_SETS: PersonaSet[] = [
 ];
 
 // ------------------------------
-// Globals (runtime state)
+// Globals
 // ------------------------------
 let SETTINGS: AppSettings;
 let LAST_RESULTS: PersonaRunResult[] = [];
 
 const el = (id: string) => document.getElementById(id)!;
-const qs = (sel: string) => document.querySelector(sel) as HTMLElement;
 
 // Debug logging
 function log(msg: string, data?: any) {
-  // console
-  if (data !== undefined) {
-    // eslint-disable-next-line no-console
-    console.log(msg, data);
-  } else {
-    // eslint-disable-next-line no-console
-    console.log(msg);
-  }
-  // panel
+  if (data !== undefined) console.log(msg, data);
+  else console.log(msg);
   const panel = el("debugLog");
   const line = document.createElement("div");
   line.style.whiteSpace = "pre-wrap";
@@ -246,16 +229,9 @@ function log(msg: string, data?: any) {
   panel.appendChild(line);
   panel.scrollTop = panel.scrollHeight;
 }
+function safeJson(x: any) { try { return JSON.stringify(x, null, 2); } catch { return String(x); } }
 
-function safeJson(x: any) {
-  try {
-    return JSON.stringify(x, null, 2);
-  } catch {
-    return String(x);
-  }
-}
-
-// Simple toast
+// Toast
 function toast(t: string) {
   const box = el("toast");
   el("toastMsg").textContent = t;
@@ -264,7 +240,7 @@ function toast(t: string) {
   setTimeout(() => (box.style.display = "none"), 3500);
 }
 
-// View switching (wired in HTML file)
+// Views
 function showView(id: "view-review" | "view-settings") {
   const review = el("view-review");
   const settings = el("view-settings");
@@ -280,33 +256,22 @@ function showView(id: "view-review" | "view-settings") {
   }
 }
 
-// Modal confirm; replaces window.confirm (unsupported in Office add-ins)
+// Modal confirm
 function confirmAsync(title: string, message: string): Promise<boolean> {
   return new Promise((resolve) => {
     const overlay = el("confirmOverlay");
     el("confirmTitle").textContent = title;
     el("confirmMessage").textContent = message;
     overlay.style.display = "flex";
-    const ok = el("confirmOk");
-    const cancel = el("confirmCancel");
-    const done = (v: boolean) => {
-      overlay.style.display = "none";
-      ok.removeEventListener("click", onOk);
-      cancel.removeEventListener("click", onCancel);
-      resolve(v);
-    };
-    const onOk = () => done(true);
-    const onCancel = () => done(false);
-    ok.addEventListener("click", onOk);
-    cancel.addEventListener("click", onCancel);
+    const ok = el("confirmOk"); const cancel = el("confirmCancel");
+    const done = (v: boolean) => { overlay.style.display = "none"; ok.removeEventListener("click", onOk); cancel.removeEventListener("click", onCancel); resolve(v); };
+    const onOk = () => done(true); const onCancel = () => done(false);
+    ok.addEventListener("click", onOk); cancel.addEventListener("click", onCancel);
   });
 }
 
-// ------------------------------
-// Settings (localStorage)
-// ------------------------------
+// Settings storage
 const LS_KEY = "pf.settings.v1";
-
 function defaultSettings(): AppSettings {
   return {
     provider: { provider: "openrouter", model: "openrouter/auto", openrouterKey: "" },
@@ -314,54 +279,56 @@ function defaultSettings(): AppSettings {
     personaSets: DEFAULT_SETS,
   };
 }
-
 function loadSettings(): AppSettings {
   try {
     const s = localStorage.getItem(LS_KEY);
     if (!s) return defaultSettings();
     const parsed = JSON.parse(s) as AppSettings;
-    // Merge defaults for new fields if needed
-    if (!parsed.personaSets || !parsed.personaSets.length) parsed.personaSets = DEFAULT_SETS;
+    if (!parsed.personaSets?.length) parsed.personaSets = DEFAULT_SETS;
     if (!parsed.personaSetId) parsed.personaSetId = DEFAULT_SETS[0].id;
     return parsed;
-  } catch {
-    return defaultSettings();
-  }
+  } catch { return defaultSettings(); }
+}
+function saveSettings() { localStorage.setItem(LS_KEY, JSON.stringify(SETTINGS)); }
+
+function currentSet(): PersonaSet {
+  const id = SETTINGS.personaSetId;
+  return SETTINGS.personaSets.find((s) => s.id === id) || SETTINGS.personaSets[0];
 }
 
-function saveSettings() {
-  localStorage.setItem(LS_KEY, JSON.stringify(SETTINGS));
+function highlightToCss(h: HighlightColor): string {
+  const map: Record<string, string> = {
+    yellow: "#fde047", darkYellow: "#f59e0b",
+    pink: "#f9a8d4", darkPink: "#db2777",
+    turquoise: "#5eead4", darkTurquoise: "#0d9488",
+    red: "#f87171", darkRed: "#b91c1c",
+    blue: "#93c5fd", darkBlue: "#1d4ed8",
+    green: "#86efac", darkGreen: "#166534",
+    violet: "#c4b5fd", darkViolet: "#6d28d9",
+  };
+  return map[h] || "#fde047";
 }
 
-// ------------------------------
-// UI init / wiring
-// ------------------------------
+// UI population
 function populatePersonaSets() {
   const sets = SETTINGS.personaSets;
-  // Review dropdown
+
   const reviewSel = el("personaSet") as HTMLSelectElement;
   reviewSel.innerHTML = "";
   sets.forEach((s) => {
-    const opt = document.createElement("option");
-    opt.value = s.id;
-    opt.textContent = s.name;
-    reviewSel.appendChild(opt);
+    const opt = document.createElement("option"); opt.value = s.id; opt.textContent = s.name; reviewSel.appendChild(opt);
   });
   reviewSel.value = SETTINGS.personaSetId;
 
-  // Settings dropdown
   const settingsSel = el("settingsPersonaSet") as HTMLSelectElement;
   settingsSel.innerHTML = "";
   sets.forEach((s) => {
-    const opt = document.createElement("option");
-    opt.value = s.id;
-    opt.textContent = s.name;
-    settingsSel.appendChild(opt);
+    const opt = document.createElement("option"); opt.value = s.id; opt.textContent = s.name; settingsSel.appendChild(opt);
   });
   settingsSel.value = SETTINGS.personaSetId;
 
   renderPersonaNamesAndLegend();
-  renderPersonaEditor(); // settings editor block
+  renderPersonaEditor();
 }
 
 function renderPersonaNamesAndLegend() {
@@ -376,33 +343,11 @@ function renderPersonaNamesAndLegend() {
     item.className = "swatch";
     const dot = document.createElement("span");
     dot.className = "dot";
-    // crude mapping to color
     (dot.style as any).background = highlightToCss(p.color);
     item.appendChild(dot);
     item.appendChild(document.createTextNode(p.name));
     legend.appendChild(item);
   });
-}
-
-function highlightToCss(h: Word.HighlightColor): string {
-  // simplified palette
-  const map: Record<string, string> = {
-    yellow: "#fde047",
-    darkYellow: "#f59e0b",
-    pink: "#f9a8d4",
-    darkPink: "#db2777",
-    turquoise: "#5eead4",
-    darkTurquoise: "#0d9488",
-    red: "#f87171",
-    darkRed: "#b91c1c",
-    blue: "#93c5fd",
-    darkBlue: "#1d4ed8",
-    green: "#86efac",
-    darkGreen: "#166534",
-    violet: "#c4b5fd",
-    darkViolet: "#6d28d9",
-  };
-  return map[h] || "#fde047";
 }
 
 function renderPersonaEditor() {
@@ -432,32 +377,17 @@ function renderPersonaEditor() {
   });
 }
 
-function escapeHtml(s: string) {
-  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-}
-
 function hydrateProviderUI() {
   (el("provider") as HTMLSelectElement).value = SETTINGS.provider.provider;
   (el("openrouterKey") as HTMLInputElement).value = SETTINGS.provider.openrouterKey || "";
   (el("model") as HTMLInputElement).value = SETTINGS.provider.model || "";
-  // show/hide API key row
   el("openrouterKeyRow").classList.toggle("hidden", SETTINGS.provider.provider !== "openrouter");
 }
+function escapeHtml(s: string) { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
-function currentSet(): PersonaSet {
-  const id = SETTINGS.personaSetId;
-  return SETTINGS.personaSets.find((s) => s.id === id) || SETTINGS.personaSets[0];
-}
-
-// ------------------------------
-// Office startup
-// ------------------------------
-window.addEventListener("error", (e) => {
-  log(`[PF] window.error: ${e.message} @ ${e.filename}:${e.lineno}`);
-});
-window.addEventListener("unhandledrejection", (ev) => {
-  log(`[PF] unhandledrejection: ${String(ev.reason)}`);
-});
+// Office bootstrap
+window.addEventListener("error", (e) => { log(`[PF] window.error: ${e.message} @ ${e.filename}:${e.lineno}`); });
+window.addEventListener("unhandledrejection", (ev) => { log(`[PF] unhandledrejection: ${String(ev.reason)}`); });
 
 Office.onReady(async () => {
   log("[PF] Office.onReady → UI initialized");
@@ -466,7 +396,6 @@ Office.onReady(async () => {
   populatePersonaSets();
   hydrateProviderUI();
 
-  // Wire top buttons
   (el("btnSettings") as HTMLButtonElement).onclick = () => showView("view-settings");
   (el("btnBack") as HTMLButtonElement).onclick = () => showView("view-review");
   (el("toggleDebug") as HTMLButtonElement).onclick = () => {
@@ -476,10 +405,8 @@ Office.onReady(async () => {
   };
   (el("clearDebug") as HTMLButtonElement).onclick = () => (el("debugLog").innerHTML = "");
 
-  // Review view
   (el("personaSet") as HTMLSelectElement).onchange = (ev) => {
-    const val = (ev.target as HTMLSelectElement).value;
-    SETTINGS.personaSetId = val;
+    SETTINGS.personaSetId = (ev.target as HTMLSelectElement).value;
     saveSettings();
     populatePersonaSets();
   };
@@ -498,7 +425,6 @@ Office.onReady(async () => {
     toast("All comments deleted.");
   };
 
-  // Settings view
   (el("provider") as HTMLSelectElement).onchange = (ev) => {
     SETTINGS.provider.provider = (ev.target as HTMLSelectElement).value as Provider;
     hydrateProviderUI();
@@ -518,13 +444,12 @@ Office.onReady(async () => {
     populatePersonaSets();
   };
   (el("saveSettings") as HTMLButtonElement).onclick = () => {
-    // persist persona editor
     const set = currentSet();
     set.personas.forEach((p, idx) => {
       p.enabled = (el(`pe-enabled-${idx}`) as HTMLInputElement).checked;
       p.system = (el(`pe-sys-${idx}`) as HTMLInputElement).value;
       p.instruction = (el(`pe-ins-${idx}`) as HTMLInputElement).value;
-      p.color = (el(`pe-color-${idx}`) as HTMLSelectElement).value as Word.HighlightColor;
+      p.color = (el(`pe-color-${idx}`) as HTMLSelectElement).value as HighlightColor;
     });
     saveSettings();
     renderPersonaNamesAndLegend();
@@ -545,60 +470,41 @@ Office.onReady(async () => {
   showView("view-review");
 });
 
-// ------------------------------
-// Main actions
-// ------------------------------
+// Actions
 async function handleRunReview() {
   LAST_RESULTS = [];
   el("results").innerHTML = "";
   el("personaStatus").innerHTML = "";
   await runAllEnabledPersonas(false);
 }
-
-async function handleRetryFailed() {
-  await runAllEnabledPersonas(true);
-}
+async function handleRetryFailed() { await runAllEnabledPersonas(true); }
 
 async function runAllEnabledPersonas(retryOnly: boolean) {
   const set = currentSet();
   const personas = set.personas.filter((p) => p.enabled);
-  if (!personas.length) {
-    toast("No personas enabled in this set.");
-    return;
-  }
+  if (!personas.length) { toast("No personas enabled in this set."); return; }
 
-  // Build quick status rows
-  const statusHost = el("personaStatus");
-  statusHost.innerHTML = "";
+  const statusHost = el("personaStatus"); statusHost.innerHTML = "";
   personas.forEach((p) => {
     const row = document.createElement("div");
-    row.id = `status-${p.id}`;
-    row.className = "row";
+    row.id = `status-${p.id}`; row.className = "row";
     row.innerHTML = `
       <span style="display:inline-flex;align-items:center;gap:6px;">
         <span class="dot" style="background:${highlightToCss(p.color)}"></span>
         ${p.name}
       </span>
-      <span id="badge-${p.id}" class="badge">queued</span>
-    `;
+      <span id="badge-${p.id}" class="badge">queued</span>`;
     statusHost.appendChild(row);
   });
 
   const docText = await getWholeDocText();
-  const total = personas.length;
-  let done = 0;
-
+  const total = personas.length; let done = 0;
   setProgress(0);
 
   for (const p of personas) {
-    // Skip in retry mode if we have a previous success
     if (retryOnly) {
       const prev = LAST_RESULTS.find((r) => r.personaId === p.id);
-      if (prev && prev.status === "done") {
-        done++;
-        setProgress((done / total) * 100);
-        continue;
-      }
+      if (prev && prev.status === "done") { done++; setProgress((done / total) * 100); continue; }
     }
 
     setBadge(p.id, "running");
@@ -608,70 +514,45 @@ async function runAllEnabledPersonas(retryOnly: boolean) {
       await applyCommentsAndHighlights(p, normalized, docText);
       addResultCard(p, normalized);
       LAST_RESULTS = upsertResult(LAST_RESULTS, {
-        personaId: p.id,
-        personaName: p.name,
-        status: "done",
-        scores: normalized.scores,
-        global_feedback: normalized.global_feedback,
-        comments: normalized.comments,
-        raw: resp,
+        personaId: p.id, personaName: p.name, status: "done",
+        scores: normalized.scores, global_feedback: normalized.global_feedback,
+        comments: normalized.comments, raw: resp,
       });
       setBadge(p.id, "done");
     } catch (err: any) {
       log(`[PF] Persona ${p.name} error`, err);
       LAST_RESULTS = upsertResult(LAST_RESULTS, {
-        personaId: p.id,
-        personaName: p.name,
-        status: "error",
-        error: String(err?.message || err),
+        personaId: p.id, personaName: p.name, status: "error", error: String(err?.message || err),
       });
       setBadge(p.id, "error", String(err?.message || "LLM call failed"));
     }
-
-    done++;
-    setProgress((done / total) * 100);
+    done++; setProgress((done / total) * 100);
   }
-
   toast("Review finished.");
 }
-
 function upsertResult(arr: PersonaRunResult[], r: PersonaRunResult): PersonaRunResult[] {
   const idx = arr.findIndex((x) => x.personaId === r.personaId);
-  if (idx >= 0) {
-    arr[idx] = r;
-  } else {
-    arr.push(r);
-  }
+  if (idx >= 0) arr[idx] = r; else arr.push(r);
   return arr;
 }
-
-function setProgress(pct: number) {
-  (el("progBar") as HTMLDivElement).style.width = `${Math.max(0, Math.min(100, pct))}%`;
-}
+function setProgress(pct: number) { (el("progBar") as HTMLDivElement).style.width = `${Math.max(0, Math.min(100, pct))}%`; }
 function setBadge(personaId: string, status: PersonaRunStatus, note?: string) {
   const b = el(`badge-${personaId}`);
   b.className = "badge " + (status === "done" ? "badge-done" : status === "error" ? "badge-failed" : "");
   b.textContent = status + (note ? ` – ${note}` : "");
 }
 
-// ------------------------------
 // Word helpers
-// ------------------------------
 async function getWholeDocText(): Promise<string> {
   return Word.run(async (ctx) => {
-    const body = ctx.document.body;
-    body.load("text");
-    await ctx.sync();
-    return body.text || "";
+    const body = ctx.document.body; body.load("text"); await ctx.sync(); return body.text || "";
   });
 }
-
 async function applyCommentsAndHighlights(
   persona: Persona,
   data: { scores: { clarity: number; tone: number; alignment: number }; global_feedback: string; comments: any[] },
-  docText: string
+  _docText: string
 ) {
-  // Apply snippet comments
   if (Array.isArray(data.comments)) {
     for (const c of data.comments) {
       const start = Math.max(0, Number(c.spanStart || 0));
@@ -679,68 +560,48 @@ async function applyCommentsAndHighlights(
       await addCommentAtRange(persona, start, end, `[${persona.name}] ${c.comment}`);
     }
   }
-
-  // Add a summary comment at top of doc
   await addCommentAtStart(persona, `Summary (${persona.name}): ${data.global_feedback}`);
 }
-
 async function addCommentAtRange(persona: Persona, start: number, end: number, text: string) {
   await Word.run(async (ctx) => {
     const body = ctx.document.body;
     const range = body.getRange("Start").expandTo(body.getRange("End"));
-    // Get a range by absolute positions
     const cRange = range.getSubstring(start, end - start);
-    cRange.font.highlightColor = persona.color;
+    (cRange.font as any).highlightColor = persona.color as any; // cast to tolerate typings
     cRange.insertComment(text);
     await ctx.sync();
   });
 }
-
 async function addCommentAtStart(persona: Persona, text: string) {
   await Word.run(async (ctx) => {
     const start = ctx.document.body.getRange("Start");
     const inserted = start.insertText(" ", Word.InsertLocation.before);
-    inserted.font.highlightColor = persona.color;
+    (inserted.font as any).highlightColor = persona.color as any;
     inserted.insertComment(text);
     await ctx.sync();
   });
 }
-
 async function clearAllComments() {
   await Word.run(async (ctx) => {
-    const comments = ctx.document.comments;
-    comments.load("items");
-    await ctx.sync();
+    const comments = ctx.document.comments; comments.load("items"); await ctx.sync();
     for (const c of comments.items) c.delete();
-    // Also clear all highlights
     const rng = ctx.document.body.getRange("Whole");
-    rng.font.highlightColor = "none" as any;
+    (rng.font as any).highlightColor = "none" as any;
     await ctx.sync();
   });
 }
-
 async function clearPersonaFeedbackOnly() {
   await Word.run(async (ctx) => {
     const comments = ctx.document.comments;
-    comments.load("items,items/content");
-    await ctx.sync();
-
-    for (const c of comments.items) {
-      // Heuristic: comments we create start with "[" and have a closing bracket
-      if (c.content && /^\[[^\]]+\]/.test(c.content)) {
-        c.delete();
-      }
-    }
-    // we can't easily target highlight by owner, so remove all highlights
+    comments.load("items,items/content"); await ctx.sync();
+    for (const c of comments.items) { if (c.content && /^\[[^\]]+\]/.test(c.content)) c.delete(); }
     const rng = ctx.document.body.getRange("Whole");
-    rng.font.highlightColor = "none" as any;
+    (rng.font as any).highlightColor = "none" as any;
     await ctx.sync();
   });
 }
 
-// ------------------------------
 // LLM calls
-// ------------------------------
 async function callLLMForPersona(persona: Persona, docText: string): Promise<any> {
   const sys = `${persona.system}\n\n${META_PROMPT}`.trim();
   const user = `
@@ -760,40 +621,23 @@ ${docText}
     if (!provider.openrouterKey) throw new Error("Missing OpenRouter API key.");
     const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${provider.openrouterKey}`,
-      },
-      body: JSON.stringify({
-        model: provider.model || "openrouter/auto",
-        messages: [
-          { role: "system", content: sys },
-          { role: "user", content: user },
-        ],
-        temperature: 0.2,
-      }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${provider.openrouterKey}` },
+      body: JSON.stringify({ model: provider.model || "openrouter/auto", messages: [
+        { role: "system", content: sys }, { role: "user", content: user },
+      ], temperature: 0.2 }),
     });
-    if (!res.ok) {
-      throw new Error(`OpenRouter HTTP ${res.status}`);
-    }
+    if (!res.ok) throw new Error(`OpenRouter HTTP ${res.status}`);
     const json = await res.json();
     const content = json?.choices?.[0]?.message?.content ?? "";
     log(`[PF] OpenRouter raw`, json);
     return parseJsonFromText(content);
   } else {
-    // Ollama
     const res = await fetch("http://127.0.0.1:11434/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: provider.model || "llama3",
-        stream: false,
-        messages: [
-          { role: "system", content: sys },
-          { role: "user", content: user },
-        ],
-        options: { temperature: 0.2 },
-      }),
+      body: JSON.stringify({ model: provider.model || "llama3", stream: false, messages: [
+        { role: "system", content: sys }, { role: "user", content: user },
+      ], options: { temperature: 0.2 } }),
     });
     if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
     const json = await res.json();
@@ -802,19 +646,12 @@ ${docText}
     return parseJsonFromText(content);
   }
 }
-
 function parseJsonFromText(text: string): any {
-  // Accept fenced code or plain JSON
   const m = text.match(/```json([\s\S]*?)```/i) || text.match(/```([\s\S]*?)```/);
   const raw = m ? m[1] : text;
-  try {
-    return JSON.parse(raw.trim());
-  } catch (e) {
-    log("[PF] JSON parse error; returning raw text", { text });
-    throw new Error("Model returned non-JSON. Enable Debug to see raw.");
-  }
+  try { return JSON.parse(raw.trim()); }
+  catch { log("[PF] JSON parse error; returning raw text", { text }); throw new Error("Model returned non-JSON. Enable Debug to see raw."); }
 }
-
 function normalizeResponse(resp: any) {
   const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
   const scores = {
@@ -827,18 +664,12 @@ function normalizeResponse(resp: any) {
   return { scores, comments, global_feedback };
 }
 
-// ------------------------------
 // Results UI
-// ------------------------------
-function addResultCard(
-  persona: Persona,
-  data: { scores: { clarity: number; tone: number; alignment: number }; global_feedback: string }
-) {
+function addResultCard(persona: Persona, data: { scores: { clarity: number; tone: number; alignment: number }; global_feedback: string }) {
   const host = el("results");
   const card = document.createElement("div");
   card.className = "result-card";
   const { clarity, tone, alignment } = data.scores;
-
   card.innerHTML = `
     <div class="row" style="justify-content:space-between">
       <div style="display:flex;align-items:center;gap:8px;">
@@ -847,52 +678,26 @@ function addResultCard(
       </div>
       <span class="badge badge-done">done</span>
     </div>
-
-    <div class="row">
-      <div style="flex:1">
-        <div style="display:flex;justify-content:space-between"><span>Clarity</span><span>${clarity}</span></div>
-        <div class="scorebar"><div class="scorebar-fill" style="width:${clarity}%;"></div></div>
-      </div>
-    </div>
-    <div class="row">
-      <div style="flex:1">
-        <div style="display:flex;justify-content:space-between"><span>Tone</span><span>${tone}</span></div>
-        <div class="scorebar"><div class="scorebar-fill" style="width:${tone}%;"></div></div>
-      </div>
-    </div>
-    <div class="row">
-      <div style="flex:1">
-        <div style="display:flex;justify-content:space-between"><span>Alignment</span><span>${alignment}</span></div>
-        <div class="scorebar"><div class="scorebar-fill" style="width:${alignment}%;"></div></div>
-      </div>
-    </div>
-
-    <div style="margin-top:6px;"><em>${escapeHtml(data.global_feedback)}</em></div>
-  `;
+    <div class="row"><div style="flex:1">
+      <div style="display:flex;justify-content:space-between"><span>Clarity</span><span>${clarity}</span></div>
+      <div class="scorebar"><div class="scorebar-fill" style="width:${clarity}%;"></div></div>
+    </div></div>
+    <div class="row"><div style="flex:1">
+      <div style="display:flex;justify-content:space-between"><span>Tone</span><span>${tone}</span></div>
+      <div class="scorebar"><div class="scorebar-fill" style="width:${tone}%;"></div></div>
+    </div></div>
+    <div class="row"><div style="flex:1">
+      <div style="display:flex;justify-content:space-between"><span>Alignment</span><span>${alignment}</span></div>
+      <div class="scorebar"><div class="scorebar-fill" style="width:${alignment}%;"></div></div>
+    </div></div>
+    <div style="margin-top:6px;"><em>${escapeHtml(data.global_feedback)}</em></div>`;
   host.appendChild(card);
 }
 
-// ------------------------------
 // Export
-// ------------------------------
 async function handleExportReport() {
-  const payload = {
-    timestamp: new Date().toISOString(),
-    set: currentSet().name,
-    results: LAST_RESULTS,
-    model: SETTINGS.provider,
-  };
+  const payload = { timestamp: new Date().toISOString(), set: currentSet().name, results: LAST_RESULTS, model: SETTINGS.provider };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `persona-feedback-${Date.now()}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  const url = URL.createObjectURL(blob); const a = document.createElement("a");
+  a.href = url; a.download = `persona-feedback-${Date.now()}.json`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
-
-// ------------------------------
-// End
-// ------------------------------
