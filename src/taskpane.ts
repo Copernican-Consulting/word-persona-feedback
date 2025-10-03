@@ -19,7 +19,10 @@ const STORAGE_KEY = "pf_settings_v3";
             UTILS
 ========================= */
 const clone = <T,>(o: T): T => {
-  try { /* @ts-ignore */ if (typeof structuredClone === "function") return structuredClone(o); } catch {}
+  try {
+    // @ts-ignore
+    if (typeof structuredClone === "function") return structuredClone(o);
+  } catch {}
   return JSON.parse(JSON.stringify(o));
 };
 
@@ -29,7 +32,9 @@ function debug(...args: any[]) {
     const dbg = document.getElementById("debugLog") as HTMLDivElement | null;
     if (dbg) {
       const line = document.createElement("div");
-      line.textContent = args.map(a => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
+      line.textContent = args
+        .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
+        .join(" ");
       dbg.appendChild(line);
       dbg.scrollTop = dbg.scrollHeight;
     }
@@ -40,37 +45,66 @@ function showToast(msg: string) {
   const toast = document.getElementById("toast") as HTMLDivElement | null;
   const toastMsg = document.getElementById("toastMsg") as HTMLSpanElement | null;
   const toastClose = document.getElementById("toastClose") as HTMLSpanElement | null;
-  if (!toast || !toastMsg || !toastClose) { alert(msg); return; }
+  if (!toast || !toastMsg || !toastClose) {
+    alert(msg);
+    return;
+  }
   toastMsg.textContent = msg;
   toast.style.display = "block";
-  const hide = () => { toast.style.display = "none"; toastClose.removeEventListener("click", hide); };
+  const hide = () => {
+    toast.style.display = "none";
+    toastClose.removeEventListener("click", hide);
+  };
   toastClose.addEventListener("click", hide);
   setTimeout(hide, 2200);
 }
 
-/* Map a hex color to the closest Word highlight color enum */
-type HL = Word.RangeHighlightColor;
-const HIGHLIGHT_ENUMS: HL[] = [
-  "yellow","pink","brightGreen","turquoise","lightGray","violet","darkYellow","darkBlue","darkRed",
-  "teal","brown","darkGreen","darkTeal","indigo","orange","blue","red","green","black","gray25","gray50","noColor"
-];
+/**
+ * Word typings don’t export a RangeHighlightColor type.
+ * highlightColor accepts string literals like "Yellow", "Pink", etc.
+ */
+type HL =
+  | "NoColor"
+  | "Yellow"
+  | "Pink"
+  | "BrightGreen"
+  | "Turquoise"
+  | "LightGray"
+  | "Violet"
+  | "DarkYellow"
+  | "DarkBlue"
+  | "DarkRed"
+  | "Teal"
+  | "Brown"
+  | "DarkGreen"
+  | "DarkTeal"
+  | "Indigo"
+  | "Orange"
+  | "Blue"
+  | "Red"
+  | "Green"
+  | "Black"
+  | "Gray25"
+  | "Gray50";
+
+/** crude hex → nearest highlight color guess */
 function hexToHighlightColor(hex?: string): HL {
-  if (!hex) return "noColor";
+  if (!hex) return "NoColor";
   const rgb = (h: string) => {
-    const s = h.replace("#",""); return [0,2,4].map(i => parseInt(s.substring(i,i+2),16));
+    const s = h.replace("#", "");
+    return [0, 2, 4].map((i) => parseInt(s.substring(i, i + 2), 16));
   };
-  const c = rgb(hex);
-  // crude mapping by hue buckets
-  const [r,g,b] = c;
-  if (r>230 && g>200 && b<100) return "yellow";
-  if (r>230 && g<160 && b>200) return "violet";
-  if (r>230 && g<160 && b<160) return "pink";
-  if (g>220 && r<160 && b<160) return "brightGreen";
-  if (g>180 && b>180 && r<100) return "turquoise";
-  if (r>240 && g>170 && b<120) return "orange";
-  if (r>150 && g>180 && b>220) return "blue";
-  if (r>200 && g>200 && b>200) return "lightGray";
-  return "noColor";
+  const [r, g, b] = rgb(hex);
+  // quick / forgiving buckets
+  if (r > 230 && g > 200 && b < 120) return "Yellow";
+  if (r > 235 && g < 170 && b > 200) return "Violet";
+  if (r > 235 && g < 170 && b < 170) return "Pink";
+  if (g > 220 && r < 160 && b < 160) return "BrightGreen";
+  if (g > 180 && b > 180 && r < 120) return "Turquoise";
+  if (r > 240 && g > 170 && b < 120) return "Orange";
+  if (r < 140 && g > 170 && b > 220) return "Blue";
+  if (r > 200 && g > 200 && b > 200) return "LightGray";
+  return "NoColor";
 }
 
 /* =========================
@@ -87,7 +121,9 @@ function loadSettings(): Settings {
     if (raw) return JSON.parse(raw);
   } catch {}
   const personaSets: Record<string, PersonaSet> = {};
-  DEFAULT_SETS.forEach(s => { personaSets[s.id] = clone(s); });
+  DEFAULT_SETS.forEach((s) => {
+    personaSets[s.id] = clone(s);
+  });
   return {
     provider: "openrouter",
     openrouterKey: "",
@@ -96,7 +132,9 @@ function loadSettings(): Settings {
     activeSetId: DEFAULT_SETS[0].id,
   };
 }
-function saveSettings() { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); }
+function saveSettings() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+}
 
 /* =========================
            RENDER
@@ -112,10 +150,15 @@ function switchView(view: "review" | "settings") {
 function renderLegend() {
   const legend = document.getElementById("legend")!;
   const set = settings.personaSets[settings.activeSetId];
-  const enabled = set.personas.filter(p => p.enabled);
-  legend.innerHTML = enabled.map(p =>
-    `<span class="swatch"><span class="dot" style="background:${p.color || '#e5e7eb'}"></span>${p.name}</span>`
-  ).join("");
+  const enabled = set.personas.filter((p) => p.enabled);
+  legend.innerHTML = enabled
+    .map(
+      (p) =>
+        `<span class="swatch"><span class="dot" style="background:${
+          p.color || "#e5e7eb"
+        }"></span>${p.name}</span>`
+    )
+    .join("");
 }
 
 function renderPersonaSetSelectors() {
@@ -124,12 +167,14 @@ function renderPersonaSetSelectors() {
   if (!personaSet || !personaList) return;
 
   const sets = Object.values(settings.personaSets);
-  personaSet.innerHTML = sets.map(s => `<option value="${s.id}">${s.name}</option>`).join("");
+  personaSet.innerHTML = sets.map((s) => `<option value="${s.id}">${s.name}</option>`).join("");
   personaSet.value = settings.activeSetId;
 
-  const names = sets.find(s => s.id === settings.activeSetId)?.personas
-    .filter(p => p.enabled)
-    .map(p => p.name) || [];
+  const names =
+    sets
+      .find((s) => s.id === settings.activeSetId)
+      ?.personas.filter((p) => p.enabled)
+      .map((p) => p.name) || [];
   personaList.textContent = names.join(" • ");
 
   renderLegend();
@@ -150,7 +195,7 @@ function renderSettingsForm() {
   openrouterKeyRow.style.display = settings.provider === "openrouter" ? "block" : "none";
 
   const sets = Object.values(settings.personaSets);
-  settingsPersonaSet.innerHTML = sets.map(s => `<option value="${s.id}">${s.name}</option>`).join("");
+  settingsPersonaSet.innerHTML = sets.map((s) => `<option value="${s.id}">${s.name}</option>`).join("");
   settingsPersonaSet.value = settings.activeSetId;
 
   renderPersonaEditor();
@@ -193,23 +238,43 @@ function renderPersonaEditor() {
   personaEditor.innerHTML = set.personas.map(personaRow).join("");
 
   // Wire inputs
-  personaEditor.querySelectorAll<HTMLInputElement>(".pe-enabled").forEach(inp => {
+  personaEditor.querySelectorAll<HTMLInputElement>(".pe-enabled").forEach((inp) => {
     inp.onchange = () => {
-      const p = set.personas.find(x => x.id === inp.dataset.id)!;
-      p.enabled = inp.checked; saveSettings(); renderPersonaSetSelectors();
+      const p = set.personas.find((x) => x.id === inp.dataset.id)!;
+      p.enabled = inp.checked;
+      saveSettings();
+      renderPersonaSetSelectors();
     };
   });
-  personaEditor.querySelectorAll<HTMLInputElement>(".pe-name").forEach(inp => {
-    inp.oninput = () => { const p = set.personas.find(x => x.id === inp.dataset.id)!; p.name = inp.value; saveSettings(); renderPersonaSetSelectors(); };
+  personaEditor.querySelectorAll<HTMLInputElement>(".pe-name").forEach((inp) => {
+    inp.oninput = () => {
+      const p = set.personas.find((x) => x.id === inp.dataset.id)!;
+      p.name = inp.value;
+      saveSettings();
+      renderPersonaSetSelectors();
+    };
   });
-  personaEditor.querySelectorAll<HTMLInputElement>(".pe-color").forEach(inp => {
-    inp.oninput = () => { const p = set.personas.find(x => x.id === inp.dataset.id)!; p.color = inp.value; saveSettings(); renderLegend(); };
+  personaEditor.querySelectorAll<HTMLInputElement>(".pe-color").forEach((inp) => {
+    inp.oninput = () => {
+      const p = set.personas.find((x) => x.id === inp.dataset.id)!;
+      p.color = inp.value;
+      saveSettings();
+      renderLegend();
+    };
   });
-  personaEditor.querySelectorAll<HTMLInputElement>(".pe-system").forEach(inp => {
-    inp.oninput = () => { const p = set.personas.find(x => x.id === inp.dataset.id)!; p.system = inp.value; saveSettings(); };
+  personaEditor.querySelectorAll<HTMLInputElement>(".pe-system").forEach((inp) => {
+    inp.oninput = () => {
+      const p = set.personas.find((x) => x.id === inp.dataset.id)!;
+      p.system = inp.value;
+      saveSettings();
+    };
   });
-  personaEditor.querySelectorAll<HTMLInputElement>(".pe-instruction").forEach(inp => {
-    inp.oninput = () => { const p = set.personas.find(x => x.id === inp.dataset.id)!; p.instruction = inp.value; saveSettings(); };
+  personaEditor.querySelectorAll<HTMLInputElement>(".pe-instruction").forEach((inp) => {
+    inp.oninput = () => {
+      const p = set.personas.find((x) => x.id === inp.dataset.id)!;
+      p.instruction = inp.value;
+      saveSettings();
+    };
   });
 }
 
@@ -219,27 +284,27 @@ function renderStatuses(status: Record<string, PersonaRunState>) {
   if (!personaStatus || !progBar) return;
 
   const set = settings.personaSets[settings.activeSetId];
-  const enabled = set.personas.filter(p => p.enabled);
-  personaStatus.innerHTML = enabled.map(p => {
-    const st = status[p.id] || "queued";
-    const color = p.color || "#e5e7eb";
-    const bg = st === "running" ? "#fff7ed"
-      : st === "done" ? "#ecfdf5"
-      : st === "failed" ? "#fef2f2" : "#eef2ff";
-    const fg = st === "running" ? "#9a3412"
-      : st === "done" ? "#065f46"
-      : st === "failed" ? "#991b1b" : "#3730a3";
-    return `
+  const enabled = set.personas.filter((p) => p.enabled);
+  personaStatus.innerHTML = enabled
+    .map((p) => {
+      const st = status[p.id] || "queued";
+      const color = p.color || "#e5e7eb";
+      const bg =
+        st === "running" ? "#fff7ed" : st === "done" ? "#ecfdf5" : st === "failed" ? "#fef2f2" : "#eef2ff";
+      const fg =
+        st === "running" ? "#9a3412" : st === "done" ? "#065f46" : st === "failed" ? "#991b1b" : "#3730a3";
+      return `
       <div class="row" style="display:flex;align-items:center;gap:8px;">
         <span class="dot" style="background:${color}"></span>
         <span style="background:${bg};color:${fg};padding:2px 6px;border-radius:10px;font-size:12px;">
           ${p.name}: ${st}
         </span>
       </div>`;
-  }).join("");
+    })
+    .join("");
 
   const total = enabled.length;
-  const done = Object.values(status).filter(s => s === "done").length;
+  const done = Object.values(status).filter((s) => s === "done").length;
   progBar.style.width = total ? `${Math.floor((done / total) * 100)}%` : "0%";
 }
 
@@ -255,14 +320,16 @@ function renderResultsView(results: Record<string, any>) {
   const resultsEl = document.getElementById("results") as HTMLDivElement | null;
   if (!resultsEl) return;
   const set = settings.personaSets[settings.activeSetId];
-  resultsEl.innerHTML = set.personas.filter(p => p.enabled).map(p => {
-    const r = results[p.id];
-    if (!r) {
-      return `<div class="result-card"><strong>${p.name}</strong><div class="muted">No result.</div></div>`;
-    }
-    const s = r.scores || {};
-    const gf = (r.global_feedback || "").toString().replace(/\n/g, "<br/>");
-    return `
+  resultsEl.innerHTML = set.personas
+    .filter((p) => p.enabled)
+    .map((p) => {
+      const r = results[p.id];
+      if (!r) {
+        return `<div class="result-card"><strong>${p.name}</strong><div class="muted">No result.</div></div>`;
+      }
+      const s = r.scores || {};
+      const gf = (r.global_feedback || "").toString().replace(/\n/g, "<br/>");
+      return `
       <div class="result-card">
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="dot" style="background:${p.color || "#e5e7eb"}"></span>
@@ -276,7 +343,8 @@ function renderResultsView(results: Record<string, any>) {
         <div style="margin-top:8px;">${gf}</div>
       </div>
     `;
-  }).join("");
+    })
+    .join("");
 }
 
 /* =========================
@@ -299,7 +367,7 @@ async function callLLM(persona: Persona, docText: string): Promise<any> {
     return {
       scores: { clarity: 82, tone: 76, alignment: 88 },
       global_feedback: `Stub feedback for ${persona.name}.`,
-      comments: [{ quote: docText.slice(0, 60), comment: "Example inline comment from stub." }]
+      comments: [{ quote: docText.slice(0, 60), comment: "Example inline comment from stub." }],
     };
   }
 
@@ -320,7 +388,7 @@ Rules:
   const messages = [
     { role: "system", content: persona.system },
     { role: "user", content: `${persona.instruction}\n\n---\nDOCUMENT:\n${docText}` },
-    { role: "user", content: metaPrompt }
+    { role: "user", content: metaPrompt },
   ];
 
   if (settings.provider === "openrouter") {
@@ -335,11 +403,11 @@ Rules:
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${settings.openrouterKey}`,
+          Authorization: `Bearer ${settings.openrouterKey}`,
           "HTTP-Referer": window.location.origin,
-          "X-Title": "Persona Feedback Word Add-in"
+          "X-Title": "Persona Feedback Word Add-in",
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
     } catch (e: any) {
       debug("openrouter network error", String(e));
@@ -350,7 +418,12 @@ Rules:
     debug("openrouter raw", raw.slice(0, 500));
     if (!resp.ok) throw new Error(`OpenRouter HTTP ${resp.status}: ${raw.slice(0, 300)}`);
 
-    let data: any; try { data = JSON.parse(raw); } catch { data = { _raw: raw }; }
+    let data: any;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = { _raw: raw };
+    }
     const txt = data?.choices?.[0]?.message?.content ?? "";
     return safeParseJSON(txt);
   }
@@ -362,7 +435,11 @@ Rules:
 
   let resp: Response;
   try {
-    resp = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
   } catch (e: any) {
     debug("ollama network error", String(e));
     throw new Error("Network error calling Ollama. Is it running on port 11434?");
@@ -372,7 +449,12 @@ Rules:
   debug("ollama raw", raw.slice(0, 500));
   if (!resp.ok) throw new Error(`Ollama HTTP ${resp.status}: ${raw.slice(0, 300)}`);
 
-  let json: any; try { json = JSON.parse(raw); } catch { json = { _raw: raw }; }
+  let json: any;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    json = { _raw: raw };
+  }
   const txt = json?.message?.content ?? json?.choices?.[0]?.message?.content ?? raw;
   return safeParseJSON(txt);
 }
@@ -380,9 +462,12 @@ Rules:
 /* =========================
        WORD COMMENTS
 ========================= */
-async function insertComments(persona: Persona, comments: { quote: string; comment: string }[]) {
+async function insertComments(
+  persona: Persona,
+  comments: { quote: string; comment: string }[]
+) {
   if (!comments || !comments.length) return;
-  const hl = hexToHighlightColor(persona.color);
+  const hl: HL = hexToHighlightColor(persona.color);
 
   await Word.run(async (context) => {
     const body = context.document.body;
@@ -400,7 +485,10 @@ async function insertComments(persona: Persona, comments: { quote: string; comme
 
         if (search.items.length > 0) {
           const target = search.items[0];
-          try { target.font.highlightColor = hl; } catch {}
+          try {
+            // highlight color expects a specific string literal at runtime
+            (target as any).font.highlightColor = hl;
+          } catch {}
           (target as any).insertComment(`${persona.name}: ${c.comment}`);
           await context.sync();
           continue;
@@ -410,7 +498,9 @@ async function insertComments(persona: Persona, comments: { quote: string; comme
       // Fallback: append at end of document
       const tail = body.getRange("End");
       (tail as any).insertComment(`${persona.name}: ${c.comment}`);
-      try { tail.font.highlightColor = hl; } catch {}
+      try {
+        (tail as any).font.highlightColor = hl;
+      } catch {}
       await context.sync();
     }
   });
@@ -446,22 +536,28 @@ async function runReview() {
     }
 
     const set = settings.personaSets[settings.activeSetId];
-    const personas = set.personas.filter(p => p.enabled);
-    if (!personas.length) { showToast("No personas enabled."); return; }
+    const personas = set.personas.filter((p) => p.enabled);
+    if (!personas.length) {
+      showToast("No personas enabled.");
+      return;
+    }
 
     const status: Record<string, PersonaRunState> = {};
-    personas.forEach(p => status[p.id] = "queued");
+    personas.forEach((p) => (status[p.id] = "queued"));
     renderStatuses(status);
 
     const results: Record<string, any> = {};
     for (const p of personas) {
       try {
-        status[p.id] = "running"; renderStatuses(status);
+        status[p.id] = "running";
+        renderStatuses(status);
         const json = await callLLM(p, docText);
         results[p.id] = json;
         debug("persona result", { id: p.id, parsed: json && !json._parse_error });
 
-        if (json?.comments?.length) { await insertComments(p, json.comments); }
+        if (json?.comments?.length) {
+          await insertComments(p, json.comments);
+        }
         status[p.id] = json?._parse_error ? "failed" : "done";
         renderStatuses(status);
         renderResultsView(results);
@@ -486,36 +582,51 @@ async function runReview() {
 let lastRunResults: Record<string, any> = {};
 
 function htmlEscape(s: string) {
-  return s.replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]!));
+  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
 }
 
 function buildReportHTML(results: Record<string, any>): string {
   const set = settings.personaSets[settings.activeSetId];
-  const personas = set.personas.filter(p => p.enabled);
+  const personas = set.personas.filter((p) => p.enabled);
 
-  const sections = personas.map(p => {
-    const r = results[p.id];
-    const s = r?.scores || {};
-    const gf = htmlEscape((r?.global_feedback || "").toString());
-    const comments = (r?.comments || []) as Array<{quote:string;comment:string}>;
-    const commentHtml = comments.length
-      ? `<ul>${comments.map(c => `<li><em>${htmlEscape(c.quote || "")}</em><br/>${htmlEscape(c.comment || "")}</li>`).join("")}</ul>`
-      : `<div class="muted">No inline comments</div>`;
+  const sections = personas
+    .map((p) => {
+      const r = results[p.id];
+      const s = r?.scores || {};
+      const gf = htmlEscape((r?.global_feedback || "").toString());
+      const comments = (r?.comments || []) as Array<{ quote: string; comment: string }>;
+      const commentHtml = comments.length
+        ? `<ul>${comments
+            .map(
+              (c) =>
+                `<li><em>${htmlEscape(c.quote || "")}</em><br/>${htmlEscape(c.comment || "")}</li>`
+            )
+            .join("")}</ul>`
+        : `<div class="muted">No inline comments</div>`;
 
-    return `
+      return `
       <section class="card">
-        <h2><span class="dot" style="background:${p.color || "#e5e7eb"}"></span> ${htmlEscape(p.name)}</h2>
+        <h2><span class="dot" style="background:${p.color || "#e5e7eb"}"></span> ${htmlEscape(
+        p.name
+      )}</h2>
         <div class="grid">
-          <div>Clarity</div><div><div class="bar"><div style="width:${Number(s.clarity||0)}%"></div></div><small>${Number(s.clarity||0)}/100</small></div>
-          <div>Tone</div><div><div class="bar"><div style="width:${Number(s.tone||0)}%"></div></div><small>${Number(s.tone||0)}/100</small></div>
-          <div>Alignment</div><div><div class="bar"><div style="width:${Number(s.alignment||0)}%"></div></div><small>${Number(s.alignment||0)}/100</small></div>
+          <div>Clarity</div><div><div class="bar"><div style="width:${Number(
+            s.clarity || 0
+          )}%"></div></div><small>${Number(s.clarity || 0)}/100</small></div>
+          <div>Tone</div><div><div class="bar"><div style="width:${Number(
+            s.tone || 0
+          )}%"></div></div><small>${Number(s.tone || 0)}/100</small></div>
+          <div>Alignment</div><div><div class="bar"><div style="width:${Number(
+            s.alignment || 0
+          )}%"></div></div><small>${Number(s.alignment || 0)}/100</small></div>
         </div>
         <h3>Global Feedback</h3>
-        <p>${gf.replace(/\n/g,"<br/>")}</p>
+        <p>${gf.replace(/\n/g, "<br/>")}</p>
         <h3>Inline Comments</h3>
         ${commentHtml}
       </section>`;
-  }).join("");
+    })
+    .join("");
 
   return `<!doctype html>
 <html>
@@ -540,7 +651,13 @@ function buildReportHTML(results: Record<string, any>): string {
 <body>
   <h1>Persona Feedback Report</h1>
   <div class="legend">
-    ${personas.map(p=>`<span class="swatch"><span class="dot" style="background:${p.color||"#e5e7eb"}"></span>${htmlEscape(p.name)}</span>`).join("")}
+    ${personas
+      .map(
+        (p) =>
+          `<span class="swatch"><span class="dot" style="background:${p.color ||
+            "#e5e7eb"}"></span>${htmlEscape(p.name)}</span>`
+      )
+      .join("")}
   </div>
   ${sections || `<div class="muted">No results yet.</div>`}
 </body>
@@ -553,7 +670,7 @@ function exportReport() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  const stamp = new Date().toISOString().replace(/[:.]/g,"-");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   a.download = `persona-feedback-${stamp}.html`;
   document.body.appendChild(a);
   a.click();
@@ -573,11 +690,19 @@ function wireEvents() {
   const clearDebug = document.getElementById("clearDebug");
   const exportBtn = document.getElementById("exportBtn");
 
-  if (gear) gear.addEventListener("click", () => { renderSettingsForm(); switchView("settings"); });
-  if (back) back.addEventListener("click", () => { switchView("review"); });
-  if (personaSet) personaSet.addEventListener("change", () => {
-    settings.activeSetId = personaSet.value; saveSettings(); renderPersonaSetSelectors();
+  if (gear) gear.addEventListener("click", () => {
+    renderSettingsForm();
+    switchView("settings");
   });
+  if (back) back.addEventListener("click", () => {
+    switchView("review");
+  });
+  if (personaSet)
+    personaSet.addEventListener("change", () => {
+      settings.activeSetId = personaSet.value;
+      saveSettings();
+      renderPersonaSetSelectors();
+    });
   if (toggleDebug) {
     let dv = false;
     toggleDebug.addEventListener("click", () => {
@@ -587,10 +712,14 @@ function wireEvents() {
       (toggleDebug as HTMLButtonElement).textContent = dv ? "Hide Debug" : "Show Debug";
     });
   }
-  if (clearDebug) clearDebug.addEventListener("click", () => {
-    const dbg = document.getElementById("debugLog"); if (dbg) dbg.innerHTML = "";
+  if (clearDebug)
+    clearDebug.addEventListener("click", () => {
+      const dbg = document.getElementById("debugLog");
+      if (dbg) dbg.innerHTML = "";
+    });
+  if (runBtn) runBtn.addEventListener("click", () => {
+    runReview();
   });
-  if (runBtn) runBtn.addEventListener("click", () => { runReview(); });
   if (exportBtn) exportBtn.addEventListener("click", exportReport);
 
   // Settings
@@ -602,29 +731,49 @@ function wireEvents() {
   const saveSettingsBtn = document.getElementById("saveSettings");
   const restoreDefaultsBtn = document.getElementById("restoreDefaults");
 
-  if (provider) provider.addEventListener("change", () => {
-    settings.provider = provider.value as Settings["provider"];
-    if (openrouterKeyRow) openrouterKeyRow.style.display = settings.provider === "openrouter" ? "block" : "none";
-    saveSettings();
-  });
-  if (openrouterKey) openrouterKey.addEventListener("input", () => { settings.openrouterKey = openrouterKey.value; saveSettings(); });
-  if (model) model.addEventListener("input", () => { settings.model = model.value; saveSettings(); });
-  if (settingsPersonaSet) settingsPersonaSet.addEventListener("change", () => {
-    settings.activeSetId = settingsPersonaSet.value; saveSettings(); renderPersonaEditor(); renderPersonaSetSelectors();
-  });
-  if (saveSettingsBtn) saveSettingsBtn.addEventListener("click", () => { saveSettings(); showToast("Settings saved"); });
-  if (restoreDefaultsBtn) restoreDefaultsBtn.addEventListener("click", () => {
-    const def = DEFAULT_SETS.find(s => s.id === settings.activeSetId)!;
-    settings.personaSets[def.id] = clone(def);
-    saveSettings(); renderPersonaEditor(); renderPersonaSetSelectors(); showToast("Restored defaults");
-  });
+  if (provider)
+    provider.addEventListener("change", () => {
+      settings.provider = provider.value as Settings["provider"];
+      if (openrouterKeyRow) openrouterKeyRow.style.display = settings.provider === "openrouter" ? "block" : "none";
+      saveSettings();
+    });
+  if (openrouterKey)
+    openrouterKey.addEventListener("input", () => {
+      settings.openrouterKey = openrouterKey.value;
+      saveSettings();
+    });
+  if (model)
+    model.addEventListener("input", () => {
+      settings.model = model.value;
+      saveSettings();
+    });
+  if (settingsPersonaSet)
+    settingsPersonaSet.addEventListener("change", () => {
+      settings.activeSetId = settingsPersonaSet.value;
+      saveSettings();
+      renderPersonaEditor();
+      renderPersonaSetSelectors();
+    });
+  if (saveSettingsBtn)
+    saveSettingsBtn.addEventListener("click", () => {
+      saveSettings();
+      showToast("Settings saved");
+    });
+  if (restoreDefaultsBtn)
+    restoreDefaultsBtn.addEventListener("click", () => {
+      const def = DEFAULT_SETS.find((s) => s.id === settings.activeSetId)!;
+      settings.personaSets[def.id] = clone(def);
+      saveSettings();
+      renderPersonaEditor();
+      renderPersonaSetSelectors();
+      showToast("Restored defaults");
+    });
 }
 
 /* =========================
            BOOT
 ========================= */
 (function boot() {
-  // Helpful dev warnings if opened outside Word
   if (typeof (window as any).Office === "undefined") {
     const warn = document.createElement("div");
     warn.style.background = "#fff7ed";
