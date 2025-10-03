@@ -46,7 +46,6 @@ function escapeHtml(s:string){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;
 function hexToRgb(hex:string){ const m = hex.trim().replace("#",""); if(m.length!==6) return {r:200,g:200,b:200}; return { r:parseInt(m.slice(0,2),16), g:parseInt(m.slice(2,4),16), b:parseInt(m.slice(4,6),16) }; }
 function rgbToHue({r,g,b}:{r:number;g:number;b:number}){ r/=255; g/=255; b/=255; const max=Math.max(r,g,b), min=Math.min(r,g,b); const d=max-min; let h=0; if(d===0) h=0; else if(max===r) h=((g-b)/d)%6; else if(max===g) h=(b-r)/d+2; else h=(r-g)/d+4; h=Math.round(h*60); if(h<0) h+=360; return h; }
 function hueToEmoji(h:number){
-  // buckets: red(0), orange(30), yellow(60), green(120), blue(210), purple(280)
   const palette = [{h:0,e:"🟥"},{h:30,e:"🟧"},{h:60,e:"🟨"},{h:120,e:"🟩"},{h:210,e:"🟦"},{h:280,e:"🟪"}];
   let best=palette[0], diff=999;
   for(const p of palette){ const d=Math.min(Math.abs(h-p.h),360-Math.abs(h-p.h)); if(d<diff){ diff=d; best=p; } }
@@ -67,7 +66,6 @@ const DEFAULT_SETS: PersonaSet[] = [
     P("Technical Lead","You are a pragmatic engineering lead.","Check feasibility, gaps, technical risks.","#93c5fd"),
     P("Junior Analyst","You are a detail-oriented analyst.","Call out unclear logic and missing data.","#86efac"),
   ]},
-  // (Keeping a few additional sets for variety; you can add more later)
   { id:"marketing-focus-group", name:"Marketing Focus Group", personas:[
     P("Midwest Parent","Pragmatic parent.","React to clarity, trust, family benefit.","#f59e0b"),
     P("Gen-Z Student","Digital native.","React to tone/authenticity.","#0ea5e9"),
@@ -228,7 +226,6 @@ async function applyCommentsForMatchesOnly(
   persona:Persona,
   data:{scores:{clarity:number;tone:number;alignment:number};global_feedback:string;comments:any[]}
 ){
-  // No summary insertion into the body; only cards in the pane
   const matched: {quote:string;spanStart:number;spanEnd:number;comment:string}[] = [];
   const unmatched: {quote:string;comment:string}[] = [];
   if(!Array.isArray(data.comments)||!data.comments.length) return { matched, unmatched };
@@ -362,4 +359,6 @@ function handleExportPDF(){
 
 // ---------- Helpers ----------
 function upsert<T extends { personaId:string }>(arr:T[], item:T){ const i=arr.findIndex(x=>x.personaId===item.personaId); if(i>=0) arr[i]=item; else arr.push(item); }
-function upsertResult(r:PersonaRunResult){ upsert(LAST_RESULTS, r); }
+function upsertResultHelper(r:PersonaRunResult){ upsert(LAST_RESULTS, r); }
+// Keep name consistency used above:
+function upsertResult(r:PersonaRunResult){ upsertResultHelper(r); }
