@@ -7,7 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     body { font-family: Segoe UI, Roboto, Arial, sans-serif; margin: 12px; }
-    h1 { font-size: 16px; margin: 0 0 8px; }
+    h1 { font-size: 16px; margin: 0 0 8px; display:flex; align-items:center; justify-content:space-between; }
     .row { margin: 8px 0; }
     select, input[type=text], input[type=password] { width: 100%; padding: 6px; }
     button { padding: 6px 10px; margin-right: 6px; }
@@ -19,7 +19,7 @@
     .failed { background:#fef2f2; color:#991b1b; }
     .muted { color:#6b7280; }
     .section { border-top:1px solid #e5e7eb; margin-top:12px; padding-top:12px; }
-    .toast { position: fixed; top: 10px; right: 10px; background:#111827; color:#fff; padding:10px 12px; border-radius:8px; display:none; }
+    .toast { position: fixed; top: 10px; right: 10px; background:#111827; color:#fff; padding:10px 12px; border-radius:8px; display:none; z-index: 9999; }
     .toast .close { margin-left:8px; cursor:pointer; }
     .hidden { display:none; }
     .progress { height:6px; background:#e5e7eb; border-radius:4px; overflow:hidden; }
@@ -28,7 +28,10 @@
   </style>
 </head>
 <body>
-  <h1>Persona Feedback <span id="gear" class="link">⚙ Settings</span></h1>
+  <h1>
+    <span>Persona Feedback</span>
+    <span id="gear" class="link">⚙ Settings</span>
+  </h1>
 
   <!-- Review view -->
   <div id="view-review">
@@ -63,6 +66,7 @@
   <!-- Settings view -->
   <div id="view-settings" class="hidden">
     <div class="row"><span class="link" id="backToReview">← Back</span></div>
+
     <h3>Model</h3>
     <div class="row">
       <label>Provider</label>
@@ -77,7 +81,7 @@
     </div>
     <div class="row">
       <label>Model</label>
-      <input type="text" id="model" placeholder="e.g. openrouter/auto or llama3" />
+      <input type="text" id="model" placeholder="e.g. openrouter/auto or llama3 or debug-stub" />
     </div>
 
     <div class="section">

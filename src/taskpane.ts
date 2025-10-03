@@ -1,7 +1,6 @@
 /* global Office, Word */
 import { DEFAULT_SETS, PersonaSet, Persona } from "./personas";
 
-// ---------- Types & constants ----------
 type Settings = {
   provider: "openrouter" | "ollama";
   openrouterKey?: string;
@@ -11,107 +10,71 @@ type Settings = {
 };
 
 type PersonaRunState = "queued" | "running" | "done" | "failed";
-
 const STORAGE_KEY = "pf_settings_v2";
 
-// ---------- Small utils ----------
+// ---------- utils ----------
 const clone = <T,>(o: T): T => {
   try { /* @ts-ignore */ if (typeof structuredClone === "function") return structuredClone(o); } catch {}
   return JSON.parse(JSON.stringify(o));
 };
 
-function showToast(msg: string) {
-  els.toastMsg.textContent = msg;
-  els.toast.style.display = "block";
-  const hide = () => { els.toast.style.display = "none"; els.toastClose.removeEventListener("click", hide); };
-  els.toastClose.addEventListener("click", hide);
-  setTimeout(hide, 3000);
-
-  // If it sounds like an error, auto-open debug panel
-  if (/error|failed|missing|could not/i.test(msg)) {
-    els.debugPanel.classList.remove("hidden");
-    els.toggleDebug.textContent = "Hide Debug";
-  }
-}
-
 function debug(...args: any[]) {
   try {
     console.log("[PF]", ...args);
-    const line = document.createElement("div");
-    line.textContent = args.map(a => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
-    els.debugLog.appendChild(line);
-    els.debugLog.scrollTop = els.debugLog.scrollHeight;
+    const dbg = document.getElementById("debugLog") as HTMLDivElement | null;
+    if (dbg) {
+      const line = document.createElement("div");
+      line.textContent = args.map(a => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
+      dbg.appendChild(line);
+      dbg.scrollTop = dbg.scrollHeight;
+    }
   } catch {}
 }
 
-// Mirror unexpected errors into the debug panel too
+function showToast(msg: string) {
+  const toast = document.getElementById("toast") as HTMLDivElement | null;
+  const toastMsg = document.getElementById("toastMsg") as HTMLSpanElement | null;
+  const toastClose = document.getElementById("toastClose") as HTMLSpanElement | null;
+  if (!toast || !toastMsg || !toastClose) {
+    debug("toast missing", msg);
+    alert(msg); // last resort
+    return;
+  }
+  toastMsg.textContent = msg;
+  toast.style.display = "block";
+  const hide = () => { toast.style.display = "none"; toastClose.removeEventListener("click", hide); };
+  toastClose.addEventListener("click", hide);
+  setTimeout(hide, 3000);
+  if (/error|failed|missing|could not/i.test(msg)) {
+    const dp = document.getElementById("debugPanel");
+    const td = document.getElementById("toggleDebug");
+    if (dp && td) { dp.classList.remove("hidden"); td.textContent = "Hide Debug"; }
+  }
+}
+
+// global error mirroring
 (function attachGlobalErrorHooks() {
   (window as any).addEventListener("error", (e: ErrorEvent) => {
-    try {
-      const msg = `window.error: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`;
-      console.error(msg, e.error);
-      const d = document.createElement("div");
-      d.textContent = msg;
-      (document.getElementById("debugLog") as HTMLDivElement)?.appendChild(d);
-    } catch {}
+    const msg = `window.error: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`;
+    console.error(msg, e.error);
+    debug(msg);
   });
   (window as any).addEventListener("unhandledrejection", (e: PromiseRejectionEvent) => {
-    try {
-      const msg = `unhandledrejection: ${String(e.reason)}`;
-      console.error(msg);
-      const d = document.createElement("div");
-      d.textContent = msg;
-      (document.getElementById("debugLog") as HTMLDivElement)?.appendChild(d);
-    } catch {}
+    const msg = `unhandledrejection: ${String(e.reason)}`;
+    console.error(msg);
+    debug(msg);
   });
 })();
 
-// ---------- DOM refs ----------
-const els = {
-  // Views
-  review: document.getElementById("view-review") as HTMLDivElement,
-  settings: document.getElementById("view-settings") as HTMLDivElement,
-  gear: document.getElementById("gear") as HTMLSpanElement,
-  back: document.getElementById("backToReview") as HTMLSpanElement,
-
-  // Review
-  personaSet: document.getElementById("personaSet") as HTMLSelectElement,
-  personaList: document.getElementById("personaList") as HTMLDivElement,
-  runBtn: document.getElementById("runBtn") as HTMLButtonElement,
-  results: document.getElementById("results") as HTMLDivElement,
-  personaStatus: document.getElementById("personaStatus") as HTMLDivElement,
-  progBar: document.getElementById("progBar") as HTMLDivElement,
-
-  // Debug
-  toggleDebug: document.getElementById("toggleDebug") as HTMLButtonElement,
-  debugPanel: document.getElementById("debugPanel") as HTMLDivElement,
-  debugLog: document.getElementById("debugLog") as HTMLDivElement,
-  clearDebug: document.getElementById("clearDebug") as HTMLButtonElement,
-
-  // Settings
-  provider: document.getElementById("provider") as HTMLSelectElement,
-  openrouterKeyRow: document.getElementById("openrouterKeyRow") as HTMLDivElement,
-  openrouterKey: document.getElementById("openrouterKey") as HTMLInputElement,
-  model: document.getElementById("model") as HTMLInputElement,
-  settingsPersonaSet: document.getElementById("settingsPersonaSet") as HTMLSelectElement,
-  personaEditor: document.getElementById("personaEditor") as HTMLDivElement,
-  saveSettings: document.getElementById("saveSettings") as HTMLButtonElement,
-  restoreDefaults: document.getElementById("restoreDefaults") as HTMLButtonElement,
-
-  // Toast
-  toast: document.getElementById("toast") as HTMLDivElement,
-  toastMsg: document.getElementById("toastMsg") as HTMLSpanElement,
-  toastClose: document.getElementById("toastClose") as HTMLSpanElement,
-};
-
+// ---------- state ----------
 let settings: Settings;
 
-// ---------- Persistence ----------
+// ---------- persistence ----------
 function loadSettings(): Settings {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw) {
-    try { return JSON.parse(raw); } catch { /* fallthrough */ }
-  }
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
   const personaSets: Record<string, PersonaSet> = {};
   DEFAULT_SETS.forEach(s => { personaSets[s.id] = clone(s); });
   return {
@@ -122,50 +85,64 @@ function loadSettings(): Settings {
     activeSetId: DEFAULT_SETS[0].id,
   };
 }
+function saveSettings() { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); }
 
-function saveSettings() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-}
-
-// ---------- UI render ----------
+// ---------- render helpers ----------
 function switchView(view: "review" | "settings") {
-  els.review.classList.toggle("hidden", view !== "review");
-  els.settings.classList.toggle("hidden", view !== "settings");
+  const review = document.getElementById("view-review");
+  const settingsView = document.getElementById("view-settings");
+  if (!review || !settingsView) { debug("switchView missing containers"); return; }
+  review.classList.toggle("hidden", view !== "review");
+  settingsView.classList.toggle("hidden", view !== "settings");
 }
 
 function renderPersonaSetSelectors() {
-  const sets = Object.values(settings.personaSets);
-  // Review selector
-  els.personaSet.innerHTML = sets.map(s => `<option value="${s.id}">${s.name}</option>`).join("");
-  els.personaSet.value = settings.activeSetId;
+  const personaSet = document.getElementById("personaSet") as HTMLSelectElement | null;
+  const personaList = document.getElementById("personaList") as HTMLDivElement | null;
+  if (!personaSet || !personaList) { debug("renderPersonaSetSelectors missing elements"); return; }
 
-  // Names only on review page
+  const sets = Object.values(settings.personaSets);
+  personaSet.innerHTML = sets.map(s => `<option value="${s.id}">${s.name}</option>`).join("");
+  personaSet.value = settings.activeSetId;
+
   const names = sets.find(s => s.id === settings.activeSetId)?.personas
     .filter(p => p.enabled)
     .map(p => p.name) || [];
-  els.personaList.textContent = names.join(" • ");
+  personaList.textContent = names.join(" • ");
 }
 
 function renderSettingsForm() {
-  // Provider/Model
-  els.provider.value = settings.provider;
-  els.openrouterKey.value = settings.openrouterKey || "";
-  els.model.value = settings.model;
-  els.openrouterKeyRow.style.display = settings.provider === "openrouter" ? "block" : "none";
+  const provider = document.getElementById("provider") as HTMLSelectElement | null;
+  const openrouterKeyRow = document.getElementById("openrouterKeyRow") as HTMLDivElement | null;
+  const openrouterKey = document.getElementById("openrouterKey") as HTMLInputElement | null;
+  const model = document.getElementById("model") as HTMLInputElement | null;
+  const settingsPersonaSet = document.getElementById("settingsPersonaSet") as HTMLSelectElement | null;
 
-  // Persona sets dropdown (settings)
+  if (!provider || !openrouterKeyRow || !openrouterKey || !model || !settingsPersonaSet) {
+    debug("renderSettingsForm missing elements");
+    return;
+  }
+
+  provider.value = settings.provider;
+  openrouterKey.value = settings.openrouterKey || "";
+  model.value = settings.model;
+  openrouterKeyRow.style.display = settings.provider === "openrouter" ? "block" : "none";
+
   const sets = Object.values(settings.personaSets);
-  els.settingsPersonaSet.innerHTML = sets.map(s => `<option value="${s.id}">${s.name}</option>`).join("");
-  els.settingsPersonaSet.value = settings.activeSetId;
+  settingsPersonaSet.innerHTML = sets.map(s => `<option value="${s.id}">${s.name}</option>`).join("");
+  settingsPersonaSet.value = settings.activeSetId;
 
   renderPersonaEditor();
 }
 
 function renderPersonaEditor() {
-  const set = settings.personaSets[els.settingsPersonaSet.value];
-  if (!set) return;
+  const settingsPersonaSet = document.getElementById("settingsPersonaSet") as HTMLSelectElement | null;
+  const personaEditor = document.getElementById("personaEditor") as HTMLDivElement | null;
+  if (!settingsPersonaSet || !personaEditor) { debug("renderPersonaEditor missing elements"); return; }
+  const set = settings.personaSets[settingsPersonaSet.value];
+  if (!set) { debug("renderPersonaEditor no set", settingsPersonaSet.value); return; }
 
-  els.personaEditor.innerHTML = set.personas.map(p => `
+  personaEditor.innerHTML = set.personas.map(p => `
     <div class="section">
       <label>
         <input type="checkbox" data-id="${p.id}" class="pe-enabled" ${p.enabled ? "checked" : ""}/>
@@ -186,30 +163,32 @@ function renderPersonaEditor() {
     </div>
   `).join("");
 
-  // Wire inputs
-  els.personaEditor.querySelectorAll<HTMLInputElement>(".pe-enabled").forEach(inp => {
+  // wire inputs
+  personaEditor.querySelectorAll<HTMLInputElement>(".pe-enabled").forEach(inp => {
     inp.onchange = () => {
       const p = set.personas.find(x => x.id === inp.dataset.id)!;
-      p.enabled = inp.checked;
-      saveSettings();
-      renderPersonaSetSelectors();
+      p.enabled = inp.checked; saveSettings(); renderPersonaSetSelectors();
     };
   });
-  els.personaEditor.querySelectorAll<HTMLInputElement>(".pe-name").forEach(inp => {
+  personaEditor.querySelectorAll<HTMLInputElement>(".pe-name").forEach(inp => {
     inp.oninput = () => { const p = set.personas.find(x => x.id === inp.dataset.id)!; p.name = inp.value; saveSettings(); renderPersonaSetSelectors(); };
   });
-  els.personaEditor.querySelectorAll<HTMLInputElement>(".pe-system").forEach(inp => {
+  personaEditor.querySelectorAll<HTMLInputElement>(".pe-system").forEach(inp => {
     inp.oninput = () => { const p = set.personas.find(x => x.id === inp.dataset.id)!; p.system = inp.value; saveSettings(); };
   });
-  els.personaEditor.querySelectorAll<HTMLInputElement>(".pe-instruction").forEach(inp => {
+  personaEditor.querySelectorAll<HTMLInputElement>(".pe-instruction").forEach(inp => {
     inp.oninput = () => { const p = set.personas.find(x => x.id === inp.dataset.id)!; p.instruction = inp.value; saveSettings(); };
   });
 }
 
 function renderStatuses(status: Record<string, PersonaRunState>) {
+  const personaStatus = document.getElementById("personaStatus") as HTMLDivElement | null;
+  const progBar = document.getElementById("progBar") as HTMLDivElement | null;
+  if (!personaStatus || !progBar) { debug("renderStatuses missing elements"); return; }
+
   const set = settings.personaSets[settings.activeSetId];
   const enabled = set.personas.filter(p => p.enabled);
-  els.personaStatus.innerHTML = enabled.map(p => {
+  personaStatus.innerHTML = enabled.map(p => {
     const st = status[p.id] || "queued";
     const cls = st === "running" ? "running" : st === "done" ? "done" : st === "failed" ? "failed" : "queued";
     return `<div class="row"><span class="chip ${cls}">${p.name}: ${st}</span></div>`;
@@ -217,16 +196,16 @@ function renderStatuses(status: Record<string, PersonaRunState>) {
 
   const total = enabled.length;
   const done = Object.values(status).filter(s => s === "done").length;
-  els.progBar.style.width = total ? `${Math.floor((done / total) * 100)}%` : "0%";
+  progBar.style.width = total ? `${Math.floor((done / total) * 100)}%` : "0%";
 }
 
 function renderResultsView(results: Record<string, any>) {
+  const resultsEl = document.getElementById("results") as HTMLDivElement | null;
+  if (!resultsEl) { debug("renderResultsView missing results element"); return; }
   const set = settings.personaSets[settings.activeSetId];
-  els.results.innerHTML = set.personas.filter(p => p.enabled).map(p => {
+  resultsEl.innerHTML = set.personas.filter(p => p.enabled).map(p => {
     const r = results[p.id];
-    if (!r) {
-      return `<div class="row"><strong>${p.name}</strong><div class="muted">No result.</div></div>`;
-    }
+    if (!r) return `<div class="row"><strong>${p.name}</strong><div class="muted">No result.</div></div>`;
     const s = r.scores || {};
     const gf = (r.global_feedback || "").toString().replace(/\n/g, "<br/>");
     return `
@@ -239,7 +218,7 @@ function renderResultsView(results: Record<string, any>) {
   }).join("");
 }
 
-// ---------- JSON helpers ----------
+// ---------- JSON + LLM ----------
 function safeParseJSON(s: string) {
   try {
     if (!s || typeof s !== "string") return { _parse_error: "empty", _raw: s };
@@ -250,10 +229,9 @@ function safeParseJSON(s: string) {
   }
 }
 
-// ---------- LLM calls ----------
 async function callLLM(persona: Persona, docText: string): Promise<any> {
-  // Debug stub model: end-to-end test without network
-  if ((settings.model || "").trim().toLowerCase() === "debug-stub") {
+  const mdl = (settings.model || "").trim().toLowerCase();
+  if (mdl === "debug-stub") {
     debug("using debug-stub", { persona: persona.id });
     return {
       scores: { clarity: 82, tone: 76, alignment: 88 },
@@ -283,16 +261,11 @@ Rules:
   ];
 
   if (settings.provider === "openrouter") {
-    if (!settings.openrouterKey) {
-      const err = "OpenRouter API key missing. Add it in Settings → Model.";
-      debug("openrouter error", err);
-      throw new Error(err);
-    }
-
+    if (!settings.openrouterKey) throw new Error("OpenRouter API key missing. Add it in Settings → Model.");
     const url = "https://openrouter.ai/api/v1/chat/completions";
     const payload = { model: settings.model, messages, temperature: 0 };
-
     debug("openrouter fetch →", { url, payload });
+
     let resp: Response;
     try {
       resp = await fetch(url, {
@@ -314,8 +287,7 @@ Rules:
     debug("openrouter raw", raw.slice(0, 500));
     if (!resp.ok) throw new Error(`OpenRouter HTTP ${resp.status}: ${raw.slice(0, 300)}`);
 
-    let data: any;
-    try { data = JSON.parse(raw); } catch { data = { _raw: raw }; }
+    let data: any; try { data = JSON.parse(raw); } catch { data = { _raw: raw }; }
     const txt = data?.choices?.[0]?.message?.content ?? "";
     return safeParseJSON(txt);
   }
@@ -327,11 +299,7 @@ Rules:
 
   let resp: Response;
   try {
-    resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
+    resp = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   } catch (e: any) {
     debug("ollama network error", String(e));
     throw new Error("Network error calling Ollama. Is it running on port 11434?");
@@ -341,14 +309,12 @@ Rules:
   debug("ollama raw", raw.slice(0, 500));
   if (!resp.ok) throw new Error(`Ollama HTTP ${resp.status}: ${raw.slice(0, 300)}`);
 
-  // Try to be liberal about response shapes
-  let json: any;
-  try { json = JSON.parse(raw); } catch { json = { _raw: raw }; }
+  let json: any; try { json = JSON.parse(raw); } catch { json = { _raw: raw }; }
   const txt = json?.message?.content ?? json?.choices?.[0]?.message?.content ?? raw;
   return safeParseJSON(txt);
 }
 
-// ---------- Word comment insertion ----------
+// ---------- Word comments ----------
 async function insertComments(personaName: string, comments: { quote: string; comment: string }[]) {
   if (!comments || !comments.length) return;
   await Word.run(async (context) => {
@@ -359,21 +325,16 @@ async function insertComments(personaName: string, comments: { quote: string; co
     for (const c of comments) {
       if (!c.comment) continue;
 
-      // If we have a quote, try to find it
       if (c.quote && c.quote.trim().length > 0) {
         const search = body.search(c.quote, { matchCase: false, matchWholeWord: false });
         search.load("items");
         await context.sync();
-
         if (search.items.length > 0) {
-          const targetRange = search.items[0];
-          (targetRange as any).insertComment(`${personaName}: ${c.comment}`);
+          (search.items[0] as any).insertComment(`${personaName}: ${c.comment}`);
           await context.sync();
           continue;
         }
       }
-
-      // Fallback: comment at the end of the document
       const tail = body.getRange("End");
       (tail as any).insertComment(`${personaName}: ${c.comment}`);
       await context.sync();
@@ -381,24 +342,13 @@ async function insertComments(personaName: string, comments: { quote: string; co
   });
 }
 
-// ---------- Run flow ----------
+// ---------- run flow ----------
 async function runReview() {
   try {
-    els.results.innerHTML = "";
-    els.runBtn.disabled = true;
+    const runBtn = document.getElementById("runBtn") as HTMLButtonElement | null;
+    if (runBtn) runBtn.disabled = true;
 
-    const set = settings.personaSets[settings.activeSetId];
-    const personas = set.personas.filter(p => p.enabled);
-
-    debug("runReview: start", { activeSetId: settings.activeSetId, personas: personas.map(p => p.id) });
-
-    if (!personas.length) {
-      showToast("No personas enabled.");
-      els.runBtn.disabled = false;
-      return;
-    }
-
-    // Read document text
+    // doc text
     let docText = "";
     try {
       await Word.run(async (context) => {
@@ -411,34 +361,29 @@ async function runReview() {
     } catch (e: any) {
       debug("Word.run error", String(e));
       showToast("Could not read document text.");
-      els.runBtn.disabled = false;
+      if (runBtn) runBtn.disabled = false;
       return;
     }
 
-    // Init status
+    const set = settings.personaSets[settings.activeSetId];
+    const personas = set.personas.filter(p => p.enabled);
+    if (!personas.length) { showToast("No personas enabled."); if (runBtn) runBtn.disabled = false; return; }
+
     const status: Record<string, PersonaRunState> = {};
     personas.forEach(p => status[p.id] = "queued");
     renderStatuses(status);
 
     const results: Record<string, any> = {};
-
     for (const p of personas) {
       try {
         status[p.id] = "running"; renderStatuses(status);
         debug("persona start", p.id);
-
         const json = await callLLM(p, docText);
         results[p.id] = json;
         debug("persona result", { id: p.id, parsed: json && !json._parse_error });
 
-        if (json?._parse_error) {
-          debug("parse error", { id: p.id, err: json._parse_error });
-        }
-
-        if (json?.comments?.length) {
-          await insertComments(p.name, json.comments);
-          debug("comments inserted", p.id);
-        }
+        if (json?._parse_error) debug("parse error", { id: p.id, err: json._parse_error });
+        if (json?.comments?.length) { await insertComments(p.name, json.comments); debug("comments inserted", p.id); }
 
         status[p.id] = json?._parse_error ? "failed" : "done";
         renderStatuses(status);
@@ -452,75 +397,104 @@ async function runReview() {
 
     renderResultsView(results);
     showToast("Review complete.");
+    if (runBtn) runBtn.disabled = false;
   } catch (e: any) {
     debug("runReview fatal", String(e));
     showToast("Run failed (see Debug).");
-  } finally {
-    els.runBtn.disabled = false;
+    const runBtn = document.getElementById("runBtn") as HTMLButtonElement | null;
+    if (runBtn) runBtn.disabled = false;
   }
 }
 
-// ---------- Events ----------
+// ---------- wiring ----------
 function wireEvents() {
-  els.gear.onclick = () => { renderSettingsForm(); switchView("settings"); };
-  els.back.onclick = () => { switchView("review"); };
+  const gear = document.getElementById("gear");
+  const back = document.getElementById("backToReview");
+  const personaSet = document.getElementById("personaSet") as HTMLSelectElement | null;
+  const runBtn = document.getElementById("runBtn");
+  const toggleDebug = document.getElementById("toggleDebug");
+  const clearDebug = document.getElementById("clearDebug");
 
-  // Review selectors
-  els.personaSet.onchange = () => {
-    settings.activeSetId = els.personaSet.value;
+  if (gear) gear.addEventListener("click", () => { renderSettingsForm(); switchView("settings"); });
+  if (back) back.addEventListener("click", () => { switchView("review"); });
+  if (personaSet) personaSet.addEventListener("change", () => {
+    settings.activeSetId = personaSet.value; saveSettings(); renderPersonaSetSelectors();
+  });
+  if (toggleDebug) {
+    let dv = false;
+    toggleDebug.addEventListener("click", () => {
+      dv = !dv;
+      const dp = document.getElementById("debugPanel");
+      if (dp) dp.classList.toggle("hidden", !dv);
+      (toggleDebug as HTMLButtonElement).textContent = dv ? "Hide Debug" : "Show Debug";
+    });
+  }
+  if (clearDebug) clearDebug.addEventListener("click", () => {
+    const dbg = document.getElementById("debugLog"); if (dbg) dbg.innerHTML = "";
+  });
+  if (runBtn) runBtn.addEventListener("click", () => { runReview(); });
+
+  // settings controls
+  const provider = document.getElementById("provider") as HTMLSelectElement | null;
+  const openrouterKeyRow = document.getElementById("openrouterKeyRow");
+  const openrouterKey = document.getElementById("openrouterKey") as HTMLInputElement | null;
+  const model = document.getElementById("model") as HTMLInputElement | null;
+  const settingsPersonaSet = document.getElementById("settingsPersonaSet") as HTMLSelectElement | null;
+  const saveSettingsBtn = document.getElementById("saveSettings");
+  const restoreDefaultsBtn = document.getElementById("restoreDefaults");
+
+  if (provider) provider.addEventListener("change", () => {
+    settings.provider = provider.value as Settings["provider"];
+    if (openrouterKeyRow) openrouterKeyRow.style.display = settings.provider === "openrouter" ? "block" : "none";
     saveSettings();
-    renderPersonaSetSelectors();
-  };
-
-  // Debug panel
-  let debugVisible = false;
-  els.toggleDebug.onclick = () => {
-    debugVisible = !debugVisible;
-    els.debugPanel.classList.toggle("hidden", !debugVisible);
-    els.toggleDebug.textContent = debugVisible ? "Hide Debug" : "Show Debug";
-  };
-  els.clearDebug.onclick = () => { els.debugLog.innerHTML = ""; };
-
-  els.runBtn.onclick = () => { runReview(); };
-
-  // Settings panel
-  els.provider.onchange = () => {
-    settings.provider = els.provider.value as Settings["provider"];
-    els.openrouterKeyRow.style.display = settings.provider === "openrouter" ? "block" : "none";
-    saveSettings();
-  };
-  els.openrouterKey.oninput = () => { settings.openrouterKey = els.openrouterKey.value; saveSettings(); };
-  els.model.oninput = () => { settings.model = els.model.value; saveSettings(); };
-
-  els.settingsPersonaSet.onchange = () => {
-    settings.activeSetId = els.settingsPersonaSet.value;
-    saveSettings();
-    renderPersonaEditor();
-    renderPersonaSetSelectors();
-  };
-
-  els.saveSettings.onclick = () => { saveSettings(); showToast("Settings saved"); };
-  els.restoreDefaults.onclick = () => {
+  });
+  if (openrouterKey) openrouterKey.addEventListener("input", () => { settings.openrouterKey = openrouterKey.value; saveSettings(); });
+  if (model) model.addEventListener("input", () => { settings.model = model.value; saveSettings(); });
+  if (settingsPersonaSet) settingsPersonaSet.addEventListener("change", () => {
+    settings.activeSetId = settingsPersonaSet.value; saveSettings(); renderPersonaEditor(); renderPersonaSetSelectors();
+  });
+  if (saveSettingsBtn) saveSettingsBtn.addEventListener("click", () => { saveSettings(); showToast("Settings saved"); });
+  if (restoreDefaultsBtn) restoreDefaultsBtn.addEventListener("click", () => {
     const def = DEFAULT_SETS.find(s => s.id === settings.activeSetId)!;
     settings.personaSets[def.id] = clone(def);
-    saveSettings();
-    renderPersonaEditor();
-    renderPersonaSetSelectors();
-    showToast("Restored defaults");
-  };
+    saveSettings(); renderPersonaEditor(); renderPersonaSetSelectors(); showToast("Restored defaults");
+  });
 }
 
-// ---------- Boot after Office is ready ----------
+// ---------- boot ----------
 Office.onReady()
   .then(() => {
     try {
       settings = loadSettings();
+
+      // DOM sanity check
+      const requiredIds = [
+        "view-review","view-settings","gear","backToReview","personaSet","personaList","runBtn",
+        "results","personaStatus","progBar","toggleDebug","debugPanel","debugLog","clearDebug",
+        "provider","openrouterKeyRow","openrouterKey","model","settingsPersonaSet","personaEditor",
+        "saveSettings","restoreDefaults","toast","toastMsg","toastClose"
+      ];
+      const missing = requiredIds.filter(id => !document.getElementById(id));
+      if (missing.length) {
+        debug("Missing DOM ids:", missing);
+        const body = document.body;
+        const warn = document.createElement("div");
+        warn.style.background = "#fff7ed";
+        warn.style.color = "#9a3412";
+        warn.style.padding = "8px";
+        warn.style.border = "1px solid #fed7aa";
+        warn.style.borderRadius = "8px";
+        warn.style.marginTop = "8px";
+        warn.textContent = "UI mismatch detected. Please replace public/taskpane.html with the provided version and reload.";
+        body.prepend(warn);
+      }
+
       wireEvents();
       renderPersonaSetSelectors();
       renderResultsView({});
       switchView("review");
       debug("Office.onReady → UI initialized");
-    } catch (e) {
+    } catch (e: any) {
       debug("init error", String(e));
       showToast("Init failed (see Debug).");
     }
