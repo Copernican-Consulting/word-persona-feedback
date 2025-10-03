@@ -4,7 +4,6 @@
 // Types
 // ------------------------------
 
-// Keep highlight colors as a string union to be compatible across Office.js versions
 type HighlightColor =
   | "yellow" | "pink" | "turquoise" | "red" | "blue" | "green" | "violet"
   | "darkYellow" | "darkPink" | "darkTurquoise" | "darkRed" | "darkBlue" | "darkGreen" | "darkViolet"
@@ -18,7 +17,7 @@ type Persona = {
   name: string;
   system: string;
   instruction: string;
-  color: HighlightColor; // our union type
+  color: HighlightColor;
 };
 
 type PersonaSet = {
@@ -218,7 +217,6 @@ let LAST_RESULTS: PersonaRunResult[] = [];
 
 const el = (id: string) => document.getElementById(id)!;
 
-// Debug logging
 function log(msg: string, data?: any) {
   if (data !== undefined) console.log(msg, data);
   else console.log(msg);
@@ -231,7 +229,6 @@ function log(msg: string, data?: any) {
 }
 function safeJson(x: any) { try { return JSON.stringify(x, null, 2); } catch { return String(x); } }
 
-// Toast
 function toast(t: string) {
   const box = el("toast");
   el("toastMsg").textContent = t;
@@ -240,7 +237,6 @@ function toast(t: string) {
   setTimeout(() => (box.style.display = "none"), 3500);
 }
 
-// Views
 function showView(id: "view-review" | "view-settings") {
   const review = el("view-review");
   const settings = el("view-settings");
@@ -256,7 +252,6 @@ function showView(id: "view-review" | "view-settings") {
   }
 }
 
-// Modal confirm
 function confirmAsync(title: string, message: string): Promise<boolean> {
   return new Promise((resolve) => {
     const overlay = el("confirmOverlay");
@@ -270,7 +265,6 @@ function confirmAsync(title: string, message: string): Promise<boolean> {
   });
 }
 
-// Settings storage
 const LS_KEY = "pf.settings.v1";
 function defaultSettings(): AppSettings {
   return {
@@ -309,7 +303,6 @@ function highlightToCss(h: HighlightColor): string {
   return map[h] || "#fde047";
 }
 
-// UI population
 function populatePersonaSets() {
   const sets = SETTINGS.personaSets;
 
@@ -566,8 +559,9 @@ async function addCommentAtRange(persona: Persona, start: number, end: number, t
   await Word.run(async (ctx) => {
     const body = ctx.document.body;
     const range = body.getRange("Start").expandTo(body.getRange("End"));
-    const cRange = range.getSubstring(start, end - start);
-    (cRange.font as any).highlightColor = persona.color as any; // cast to tolerate typings
+    // TS typing shim (runtime supports getSubstring on Range; typings in some office-js versions do not)
+    const cRange = (range as any).getSubstring(start, end - start);
+    (cRange.font as any).highlightColor = persona.color as any;
     cRange.insertComment(text);
     await ctx.sync();
   });
@@ -583,7 +577,8 @@ async function addCommentAtStart(persona: Persona, text: string) {
 }
 async function clearAllComments() {
   await Word.run(async (ctx) => {
-    const comments = ctx.document.comments; comments.load("items"); await ctx.sync();
+    const comments = (ctx.document as any).comments; // TS typing shim
+    comments.load("items"); await ctx.sync();
     for (const c of comments.items) c.delete();
     const rng = ctx.document.body.getRange("Whole");
     (rng.font as any).highlightColor = "none" as any;
@@ -592,7 +587,7 @@ async function clearAllComments() {
 }
 async function clearPersonaFeedbackOnly() {
   await Word.run(async (ctx) => {
-    const comments = ctx.document.comments;
+    const comments = (ctx.document as any).comments; // TS typing shim
     comments.load("items,items/content"); await ctx.sync();
     for (const c of comments.items) { if (c.content && /^\[[^\]]+\]/.test(c.content)) c.delete(); }
     const rng = ctx.document.body.getRange("Whole");
