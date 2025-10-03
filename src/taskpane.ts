@@ -1,5 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+/**
+ * Persona Feedback – Word Add-in task pane
+ * - Fixes: remove invalid getSubstring; use body.search(...) to locate quotes
+ * - Adds detailed debug logs per comment match
+ * - Keeps progress UI, retry, export, settings, etc.
+ */
+
 // ---------- Types ----------
 type HighlightColor =
   | "yellow" | "pink" | "turquoise" | "red" | "blue" | "green" | "violet"
@@ -138,8 +145,8 @@ You are a reviewer. Return ONLY valid JSON matching this schema:
 }
 
 RULES:
-- No markdown.
-- 3–8 comments with accurate spanStart/spanEnd for the exact quote.
+- No markdown (unless the JSON is fenced as \`\`\`json).
+- 3–8 comments with accurate "quote".
 - Global feedback ~2-5 sentences.
 `;
 
@@ -253,6 +260,12 @@ function highlightToCss(h: HighlightColor): string {
     violet:"#c4b5fd", darkViolet:"#6d28d9",
   };
   return map[h] || "#fde047";
+}
+function officeHighlightName(h: HighlightColor): string {
+  // Office expects PascalCase color names like "Yellow" | "DarkYellow" | "None"
+  const parts = h.split(/(?=[A-Z])|-/).filter(Boolean);
+  const fixed = parts.map(p => p[0].toUpperCase() + p.slice(1).toLowerCase()).join("");
+  return fixed === "" ? "None" : fixed;
 }
 
 function escapeHtml(s: string) { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
@@ -507,7 +520,7 @@ async function runAllEnabledPersonas(retryOnly: boolean) {
     try {
       const resp = await callLLMForPersona(p, docText);
       const normalized = normalizeResponse(resp);
-      await applyCommentsAndHighlights(p, normalized, docText);
+      await applyCommentsAndHighlights(p, normalized);
       addResultCard(p, normalized);
       upsertResult({
         personaId: p.id, personaName: p.name, status: "done",
@@ -538,58 +551,122 @@ async function getWholeDocText(): Promise<string> {
     const body = ctx.document.body; body.load("text"); await ctx.sync(); return body.text || "";
   });
 }
+
+/**
+ * NEW: search-based placement for quotes; no getSubstring
+ */
 async function applyCommentsAndHighlights(
   persona: Persona,
-  data: { scores: { clarity: number; tone: number; alignment: number }; global_feedback: string; comments: any[] },
-  _docText: string
+  data: { scores: { clarity: number; tone: number; alignment: number }; global_feedback: string; comments: any[] }
 ) {
-  if (Array.isArray(data.comments)) {
-    for (const c of data.comments) {
-      const start = Math.max(0, Number(c.spanStart || 0));
-      const end = Math.max(start, Number(c.spanEnd || start + (c.quote?.length || 0)));
-      await addCommentAtRange(persona, start, end, `[${persona.name}] ${c.comment}`);
+  // Summary comment at top (always)
+  await addCommentAtStart(persona, `Summary (${persona.name}): ${data.global_feedback}`);
+
+  if (!Array.isArray(data.comments) || data.comments.length === 0) {
+    log(`[PF] ${persona.name}: no inline comments returned`);
+    return;
+  }
+
+  for (const [i, c] of data.comments.entries()) {
+    const quote = String(c.quote || "").trim();
+    const note = String(c.comment || "").trim();
+    if (!quote || quote.length < 3) {
+      log(`[PF] ${persona.name}: comment #${i+1} has empty/short quote; skipping`, c);
+      continue;
+    }
+
+    const placed = await addCommentBySearchingQuote(persona, quote, note);
+    if (!placed) {
+      log(`[PF] ${persona.name}: quote not found; adding fallback comment at start`, { quote });
+      await addCommentAtStart(persona, `[${persona.name}] (unmatched) ${note}\n→ Quote: "${quote}"`);
     }
   }
-  await addCommentAtStart(persona, `Summary (${persona.name}): ${data.global_feedback}`);
 }
-async function addCommentAtRange(persona: Persona, start: number, end: number, text: string) {
-  await Word.run(async (ctx) => {
+
+/**
+ * Searches the body for the quoted text and attaches a comment + highlight on the first matching range.
+ * Returns true if a match was found.
+ */
+async function addCommentBySearchingQuote(persona: Persona, quote: string, text: string): Promise<boolean> {
+  return Word.run(async (ctx) => {
     const body = ctx.document.body;
-    const range = body.getRange("Start").expandTo(body.getRange("End"));
-    const cRange = (range as any).getSubstring(start, end - start); // TS shim
-    (cRange.font as any).highlightColor = persona.color as any;
-    cRange.insertComment(text);
+    const ranges = body.search(quote, {
+      matchCase: false, matchWholeWord: false, matchWildcards: false, ignoreSpace: false, ignorePunct: false,
+    });
+    ranges.load("items"); await ctx.sync();
+
+    const count = ranges.items.length;
+    log(`[PF] search "${quote.slice(0, 60)}${quote.length>60?"…":""}" → ${count} match(es)`);
+
+    if (count === 0) return false;
+
+    // choose the first match (fast & deterministic)
+    const r = ranges.items[0];
+    (r.font as any).highlightColor = officeHighlightName(persona.color) as any;
+    r.insertComment(`[${persona.name}] ${text}`);
     await ctx.sync();
+    return true;
   });
 }
+
 async function addCommentAtStart(persona: Persona, text: string) {
-  await Word.run(async (ctx) => {
+  return Word.run(async (ctx) => {
     const start = ctx.document.body.getRange("Start");
     const inserted = start.insertText(" ", Word.InsertLocation.before);
-    (inserted.font as any).highlightColor = persona.color as any;
+    (inserted.font as any).highlightColor = officeHighlightName(persona.color) as any;
     inserted.insertComment(text);
     await ctx.sync();
   });
 }
+
 async function clearAllComments() {
-  await Word.run(async (ctx) => {
-    const comments = (ctx.document as any).comments; // TS shim
+  return Word.run(async (ctx) => {
+    const comments = (ctx.document as any).comments; // runtime supports this
     comments.load("items"); await ctx.sync();
     for (const c of comments.items) c.delete();
     const rng = ctx.document.body.getRange("Whole");
-    (rng.font as any).highlightColor = "none" as any;
+    (rng.font as any).highlightColor = "None" as any;
     await ctx.sync();
   });
 }
+
 async function clearPersonaFeedbackOnly() {
-  await Word.run(async (ctx) => {
-    const comments = (ctx.document as any).comments; // TS shim
+  return Word.run(async (ctx) => {
+    const comments = (ctx.document as any).comments;
     comments.load("items,items/content"); await ctx.sync();
-    for (const c of comments.items) { if (c.content && /^\[[^\]]+\]/.test(c.content)) c.delete(); }
+    for (const c of comments.items) {
+      if (c.content && /^\[[^\]]+\]/.test(c.content)) c.delete();
+    }
     const rng = ctx.document.body.getRange("Whole");
-    (rng.font as any).highlightColor = "none" as any;
+    (rng.font as any).highlightColor = "None" as any;
     await ctx.sync();
   });
+}
+
+// ---------- Networking helpers ----------
+function withTimeout<T>(p: Promise<T>, ms = 45000): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`Request timed out after ${ms}ms`)), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+async function fetchJson(url: string, init: RequestInit): Promise<{ ok: boolean; status: number; body: any; text?: string }> {
+  try {
+    const res = await withTimeout(fetch(url, init));
+    let body: any = null;
+    let text = "";
+    try {
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("application/json")) body = await res.json();
+      else { text = await res.text(); try { body = JSON.parse(text); } catch { /* keep text */ } }
+    } catch (e) {
+      text = await res.text().catch(() => "");
+    }
+    return { ok: res.ok, status: res.status, body, text };
+  } catch (e: any) {
+    log("[PF] fetchJson network error", { message: e?.message || String(e) });
+    throw e;
+  }
 }
 
 // ---------- LLM ----------
@@ -602,39 +679,68 @@ async function callLLMForPersona(persona: Persona, docText: string): Promise<any
 
   if (provider.provider === "openrouter") {
     if (!provider.openrouterKey) throw new Error("Missing OpenRouter API key.");
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+
+    const res = await fetchJson("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${provider.openrouterKey}` },
-      body: JSON.stringify({ model: provider.model || "openrouter/auto", messages: [
-        { role: "system", content: sys }, { role: "user", content: user },
-      ], temperature: 0.2 }),
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${provider.openrouterKey}`,
+        "HTTP-Referer": (typeof window !== "undefined" ? window.location.origin : "https://word-persona-feedback.vercel.app"),
+        "X-Title": "Persona Feedback Add-in",
+      },
+      body: JSON.stringify({
+        model: provider.model || "openrouter/auto",
+        messages: [
+          { role: "system", content: sys },
+          { role: "user", content: user },
+        ],
+        temperature: 0.2,
+      }),
     });
-    if (!res.ok) throw new Error(`OpenRouter HTTP ${res.status}`);
-    const json = await res.json();
-    const content = json?.choices?.[0]?.message?.content ?? "";
-    log(`[PF] OpenRouter raw`, json);
+
+    if (!res.ok) {
+      log("[PF] OpenRouter non-OK", { status: res.status, body: res.body, text: res.text });
+      throw new Error(`OpenRouter HTTP ${res.status}: ${res.text || safeJson(res.body)}`);
+    }
+    const content = res.body?.choices?.[0]?.message?.content ?? "";
+    log(`[PF] OpenRouter raw`, res.body);
     return parseJsonFromText(content);
+
   } else {
-    const res = await fetch("http://127.0.0.1:11434/api/chat", {
+    const res = await fetchJson("http://127.0.0.1:11434/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: provider.model || "llama3", stream: false, messages: [
-        { role: "system", content: sys }, { role: "user", content: user },
-      ], options: { temperature: 0.2 } }),
+      body: JSON.stringify({
+        model: provider.model || "llama3",
+        stream: false,
+        messages: [
+          { role: "system", content: sys },
+          { role: "user", content: user },
+        ],
+        options: { temperature: 0.2 },
+      }),
     });
-    if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
-    const json = await res.json();
-    const content = json?.message?.content ?? "";
-    log(`[PF] Ollama raw`, json);
+
+    if (!res.ok) {
+      log("[PF] Ollama non-OK", { status: res.status, body: res.body, text: res.text });
+      throw new Error(`Ollama HTTP ${res.status}: ${res.text || safeJson(res.body)}`);
+    }
+    const content = res.body?.message?.content ?? "";
+    log(`[PF] Ollama raw`, res.body);
     return parseJsonFromText(content);
   }
 }
+
 function parseJsonFromText(text: string): any {
   const m = text.match(/```json([\s\S]*?)```/i) || text.match(/```([\s\S]*?)```/);
   const raw = m ? m[1] : text;
   try { return JSON.parse(raw.trim()); }
-  catch { log("[PF] JSON parse error; returning raw text", { text }); throw new Error("Model returned non-JSON. Enable Debug to see raw."); }
+  catch {
+    log("[PF] JSON parse error; full text follows", { text });
+    throw new Error("Model returned non-JSON. See Debug for raw output.");
+  }
 }
+
 function normalizeResponse(resp: any) {
   const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
   const scores = {
