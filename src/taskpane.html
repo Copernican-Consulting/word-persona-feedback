@@ -1,133 +1,156 @@
 <!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Persona Feedback</title>
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Persona Feedback</title>
+  <link rel="icon" href="/assets/icon-32.png"/>
+  <link rel="stylesheet" href="taskpane.css"/>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin:0; }
+    .app { padding: 12px; display:flex; flex-direction:column; gap:12px; }
+    .toolbar { display:flex; gap:8px; align-items:center; justify-content:space-between; }
+    .left, .right { display:flex; gap:8px; align-items:center; }
+    .hidden { display:none !important; }
+    .row { display:flex; gap:8px; align-items:center; margin:6px 0; }
+    select, input[type="text"], input[type="password"] { width:100%; padding:6px 8px; }
+    .btn { padding:6px 10px; border:1px solid #ddd; background:#f7f7f7; border-radius:6px; cursor:pointer; }
+    .btn.primary { background:#2563eb; color:#fff; border-color:#2563eb; }
+    .btn.ghost { background:transparent; border-color:transparent; color:#2563eb; }
+    .section { border:1px solid #eee; border-radius:8px; padding:10px; }
+    .section h3 { margin:0 0 8px 0; font-size:14px; }
+    #legend .swatch { display:flex; align-items:center; gap:8px; margin:4px 0; font-size:12px; }
+    .dot { width:10px; height:10px; border-radius:999px; display:inline-block; border:1px solid #8884; }
+    .badge { padding:2px 6px; border-radius:999px; background:#eee; font-size:11px; }
+    .badge-done { background:#16a34a22; color:#166534; border:1px solid #16a34a55; }
+    .badge-failed { background:#dc262622; color:#7f1d1d; border:1px solid #dc262655; }
+    .progress { height:6px; background:#f3f4f6; border-radius:999px; overflow:hidden; }
+    .progress > div { height:100%; width:0%; background:#2563eb; transition:width .2s ease; }
+    .result-card { border:1px solid #eee; border-radius:8px; padding:10px; margin-top:8px; }
+    #debugPanel { border:1px dashed #ddd; padding:8px; border-radius:8px; max-height:160px; overflow:auto; background:#fafafa; }
+    /* toast */
+    #toast { position:fixed; right:12px; bottom:12px; background:#111; color:#fff; padding:10px 12px; border-radius:8px; display:none; z-index:1000; }
+    #toastClose { margin-left:6px; cursor:pointer; }
+    /* confirm modal */
+    #confirmOverlay { position:fixed; inset:0; background:#0006; display:none; align-items:center; justify-content:center; z-index:1000; }
+    #confirmBox { background:#fff; width:320px; border-radius:10px; padding:14px; }
+    #confirmBox h3 { margin:0 0 8px 0; }
+    .two-col { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
+    label { font-size:12px; min-width:120px; color:#374151; }
+    .kv { display:flex; gap:8px; align-items:center; }
+    .hr { height:1px; background:#eee; margin:6px 0; }
+  </style>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+</head>
+<body>
+<div class="app">
+  <div class="toolbar">
+    <div class="left">
+      <button id="btnBack" class="btn hidden">← Back</button>
+    </div>
+    <div class="right">
+      <button id="toggleDebug" class="btn">Show Debug</button>
+      <button id="btnSettings" class="btn">⚙ Settings</button>
+    </div>
+  </div>
 
-    <!-- Prevent favicon 404 -->
-    <link rel="icon" href="data:," />
-
-    <!-- Load Office.js BEFORE our bundle so Office is defined -->
-    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-
-    <!-- Minimal inline styles (no external CSS needed) -->
-    <style>
-      :root { --muted:#6b7280; --border:#e5e7eb; --bg:#ffffff; --btn:#111827; --btnbg:#f3f4f6; --bar:#2563eb; }
-      * { box-sizing: border-box; font-family: Segoe UI, Roboto, Arial, sans-serif; }
-      body { margin: 0; background: var(--bg); color:#111827; }
-      .hidden { display: none !important; }
-      .toolbar { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px; border-bottom:1px solid var(--border); }
-      .toolbar .left, .toolbar .right { display:flex; gap:8px; align-items:center; }
-      main { padding:10px; }
-      .row { display:flex; gap:8px; align-items:center; margin:6px 0; }
-      label { min-width:92px; color:#374151; }
-      select, input[type=text], input[type=password] { width:100%; padding:6px 8px; border:1px solid var(--border); border-radius:6px; }
-      button { padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--btnbg); color:var(--btn); cursor:pointer; }
-      button:disabled { opacity:.6; cursor:default; }
-      .controls { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
-      .progress-bar { height:4px; background:#e5e7eb; border-radius:3px; overflow:hidden; }
-      .progress-bar > div { height:100%; background:var(--bar); width:0%; transition: width .25s ease; }
-      .muted { color: var(--muted); }
-      .legend { display:flex; flex-wrap:wrap; gap:8px; }
-      .legend .swatch { display:flex; align-items:center; gap:6px; padding:2px 6px; border:1px solid var(--border); border-radius:10px; font-size:12px; }
-      .dot { width:10px; height:10px; border-radius:50%; border:1px solid var(--border); display:inline-block; }
-      .result-card { border:1px solid var(--border); border-radius:10px; padding:10px; margin:8px 0; }
-      .scorebar { height:8px; background:#e5e7eb; border-radius:4px; overflow:hidden; }
-      .scorebar-fill { height:100%; background:var(--bar); }
-      .badge { padding:2px 6px; border-radius:10px; font-size:12px; }
-      .badge-done { background:#ecfdf5; color:#065f46; }
-      .badge-failed { background:#fef2f2; color:#991b1b; }
-      /* toast */
-      .toast { position:fixed; left:12px; right:12px; bottom:12px; background:#111827; color:white; padding:8px 12px; border-radius:10px; display:none; }
-      .toast-close { float:right; cursor:pointer; opacity:.85; }
-      /* debug */
-      #debugPanel { border-top:1px solid var(--border); margin-top:10px; padding-top:8px; }
-      .debuglog { max-height:160px; overflow:auto; background:#f9fafb; border:1px solid var(--border); padding:8px; border-radius:8px; }
-    </style>
-  </head>
-  <body>
-    <header class="toolbar">
-      <div class="left">
-        <button id="gear" title="Settings">⚙️ Settings</button>
-        <button id="backToReview" class="hidden">⬅ Back</button>
-      </div>
-      <div class="right">
-        <button id="exportBtn" title="Export report">Export</button>
-        <button id="toggleDebug">Show Debug</button>
-      </div>
-    </header>
-
-    <main>
-      <!-- Review view -->
-      <section id="view-review">
-        <div class="row">
-          <label>Persona Set</label>
-          <select id="personaSet"></select>
-        </div>
-        <div id="personaList" class="muted" style="margin-bottom:6px;"></div>
-        <div id="legend" class="legend" style="margin-bottom:6px;"></div>
-
-        <div class="controls">
-          <button id="runBtn">Run Review</button>
-          <button id="retryBtn">Retry Failed</button>
-          <button id="clearBtn" title="Clear highlights and PF-tagged comments only">Clear PF</button>
-          <button id="clearAllBtn" title="Delete ALL comments (careful!)">Clear ALL</button>
-        </div>
-
-        <div class="progress"><div class="progress-bar"><div id="progBar"></div></div></div>
-
-        <div id="personaStatus" style="margin:8px 0;"></div>
-        <div id="results"></div>
-      </section>
-
-      <!-- Settings view (hidden by default) -->
-      <section id="view-settings" class="hidden">
-        <h3>Model</h3>
-        <div class="row">
-          <label>Provider</label>
-          <select id="provider">
-            <option value="openrouter">OpenRouter</option>
-            <option value="ollama">Ollama (local)</option>
-          </select>
-        </div>
-        <div class="row" id="openrouterKeyRow">
-          <label>OpenRouter API Key</label>
-          <input type="password" id="openrouterKey" placeholder="sk-or-v1-..." />
-        </div>
-        <div class="row">
-          <label>Model</label>
-          <input type="text" id="model" placeholder="openrouter/auto or ollama model name"/>
-        </div>
-
-        <h3>Persona Settings</h3>
-        <div class="row">
-          <label>Persona Set</label>
-          <select id="settingsPersonaSet"></select>
-        </div>
-        <div id="personaEditor"></div>
-        <div class="row" style="gap:8px; margin-top:8px;">
-          <button id="saveSettings">Save Settings</button>
-          <button id="restoreDefaults">Restore Default Set</button>
-          <button id="backToReview">Back to Review</button>
-        </div>
-      </section>
-
-      <!-- Debug -->
-      <section id="debugPanel" class="hidden" style="margin-top:12px;">
-        <h3>Debug</h3>
-        <div id="debugLog" class="debuglog"></div>
-        <button id="clearDebug">Clear Debug</button>
-      </section>
-    </main>
-
-    <div id="toast" class="toast">
-      <span id="toastMsg"></span>
-      <span id="toastClose" class="toast-close">✕</span>
+  <!-- REVIEW VIEW -->
+  <div id="view-review" class="section">
+    <h3>Persona Feedback</h3>
+    <div class="row">
+      <label for="personaSet">Persona Set</label>
+      <select id="personaSet"></select>
+    </div>
+    <div class="row">
+      <div class="kv"><strong>Personas:</strong> <span id="personaList"></span></div>
     </div>
 
-    <!-- Your compiled bundle -->
-    <script src="taskpane.bundle.js"></script>
-  </body>
+    <div class="two-col">
+      <div class="section">
+        <h3>Legend</h3>
+        <div id="legend"></div>
+      </div>
+      <div class="section">
+        <h3>Controls</h3>
+        <div class="row" style="gap:6px; flex-wrap:wrap;">
+          <button id="runBtn" class="btn primary">Run Review</button>
+          <button id="retryBtn" class="btn">Retry Failed</button>
+          <button id="exportBtn" class="btn">Export Report</button>
+          <button id="clearBtn" class="btn">Clear PF Comments</button>
+          <button id="clearAllBtn" class="btn">Clear ALL Comments</button>
+        </div>
+        <div class="row">
+          <div class="progress" style="flex:1"><div id="progBar"></div></div>
+        </div>
+        <div id="personaStatus"></div>
+      </div>
+    </div>
+
+    <div id="results"></div>
+  </div>
+
+  <!-- SETTINGS VIEW -->
+  <div id="view-settings" class="section hidden">
+    <h3>Settings</h3>
+
+    <div class="section">
+      <h3>Model</h3>
+      <div class="row">
+        <label for="provider">Provider</label>
+        <select id="provider">
+          <option value="openrouter">OpenRouter</option>
+          <option value="ollama">Ollama (local)</option>
+        </select>
+      </div>
+      <div id="openrouterKeyRow" class="row">
+        <label for="openrouterKey">OpenRouter API Key</label>
+        <input id="openrouterKey" type="password" placeholder="sk-or-..."/>
+      </div>
+      <div class="row">
+        <label for="model">Model ID</label>
+        <input id="model" type="text" placeholder="openrouter/auto"/>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>Persona Settings</h3>
+      <div class="row">
+        <label for="settingsPersonaSet">Persona Set</label>
+        <select id="settingsPersonaSet"></select>
+      </div>
+      <div id="personaEditor"></div>
+      <div class="row" style="justify-content:flex-end; gap:8px;">
+        <button id="restoreDefaults" class="btn">Restore Default Set</button>
+        <button id="saveSettings" class="btn primary">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="debugPanel" class="hidden section">
+    <div class="row" style="justify-content:space-between;">
+      <strong>Debug</strong>
+      <button id="clearDebug" class="btn ghost">Clear</button>
+    </div>
+    <div id="debugLog" style="font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px;"></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"> <span id="toastMsg"></span> <span id="toastClose">✕</span> </div>
+
+<!-- Confirm Modal -->
+<div id="confirmOverlay">
+  <div id="confirmBox">
+    <h3 id="confirmTitle">Confirm</h3>
+    <div id="confirmMessage" style="margin:8px 0 14px 0;"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button id="confirmCancel" class="btn">Cancel</button>
+      <button id="confirmOk" class="btn primary">OK</button>
+    </div>
+  </div>
+</div>
+
+<script src="taskpane.bundle.js"></script>
+</body>
 </html>

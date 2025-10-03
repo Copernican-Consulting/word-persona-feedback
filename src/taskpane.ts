@@ -1,9 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// ------------------------------
-// Types
-// ------------------------------
-
+// ---------- Types ----------
 type HighlightColor =
   | "yellow" | "pink" | "turquoise" | "red" | "blue" | "green" | "violet"
   | "darkYellow" | "darkPink" | "darkTurquoise" | "darkRed" | "darkBlue" | "darkGreen" | "darkViolet"
@@ -39,188 +36,43 @@ type AppSettings = {
 };
 
 type PersonaRunStatus = "idle" | "running" | "done" | "error";
-
 type PersonaRunResult = {
   personaId: string;
   personaName: string;
   status: PersonaRunStatus;
   scores?: { clarity: number; tone: number; alignment: number };
   global_feedback?: string;
-  comments?: {
-    quote: string;
-    spanStart: number;
-    spanEnd: number;
-    comment: string;
-  }[];
+  comments?: { quote: string; spanStart: number; spanEnd: number; comment: string }[];
   raw?: any;
   error?: string;
 };
 
-// ------------------------------
-// Constants / Defaults
-// ------------------------------
-
+// ---------- Globals ----------
 const WORD_COLORS: HighlightColor[] = [
-  "yellow", "pink", "turquoise", "red", "blue", "green", "violet",
-  "darkYellow", "darkPink", "darkTurquoise", "darkRed", "darkBlue", "darkGreen", "darkViolet",
+  "yellow","pink","turquoise","red","blue","green","violet",
+  "darkYellow","darkPink","darkTurquoise","darkRed","darkBlue","darkGreen","darkViolet",
 ];
-
-function colorAt(i: number): HighlightColor {
-  return WORD_COLORS[i % WORD_COLORS.length];
-}
-
-const META_PROMPT = `
-You are a reviewer. Return ONLY valid JSON matching this schema:
-
-{
-  "scores": { "clarity": 0-100, "tone": 0-100, "alignment": 0-100 },
-  "global_feedback": "short paragraph",
-  "comments": [
-    {
-      "quote": "verbatim snippet from the doc (20-160 chars)",
-      "spanStart": whole-document character start index (0-based),
-      "spanEnd": whole-document character end index (exclusive),
-      "comment": "persona-specific feedback about that snippet"
-    }
-  ]
-}
-
-RULES:
-- Do not include markdown.
-- Make 3–8 targeted "comments" entries with accurate spanStart/spanEnd covering the exact quote.
-- Keep "global_feedback" ~2-5 sentences.
-`;
-
-function P(name: string, system: string, instruction: string, idx: number): Persona {
-  return {
-    id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-    enabled: true,
-    name,
-    system,
-    instruction,
-    color: colorAt(idx),
-  };
-}
-
-// ---- Default Persona Sets ----
-const DEFAULT_SETS: PersonaSet[] = [
-  {
-    id: "cross-functional-team",
-    name: "Cross-Functional Team",
-    personas: [
-      P("Senior Manager", "You are a senior manager prioritizing clarity, risks, and outcomes.", "Assess clarity of goals, risks, and expected outcomes.", 0),
-      P("Legal", "You are corporate counsel focused on compliance and risk.", "Flag ambiguity, risky claims, missing disclaimers.", 1),
-      P("HR", "You are an HR business partner concerned with tone and inclusion.", "Identify exclusionary tone and suggest inclusive language.", 2),
-      P("Technical Lead", "You are a pragmatic engineering lead.", "Check feasibility, gaps, and technical risks.", 3),
-      P("Junior Analyst", "You are a detail-oriented junior analyst.", "Call out unclear logic, missing data, or inconsistent units.", 4),
-    ],
-  },
-  {
-    id: "marketing-focus-group",
-    name: "Marketing Focus Group",
-    personas: [
-      P("Midwest Parent", "You are a pragmatic parent from the US Midwest.", "React to clarity, trustworthiness, and family benefit.", 0),
-      P("Gen-Z Student", "You are a digital-native college student.", "React to tone, authenticity, and modern appeal.", 1),
-      P("Retired Veteran", "You are a retired veteran valuing respect and responsibility.", "React to credibility and plain-language clarity.", 2),
-      P("Small Business Owner", "You are a small business owner.", "React to practical value and ROI.", 3),
-      P("Tech-savvy Pro", "You are a tech-savvy professional.", "React to precision and claims that need specifics.", 4),
-    ],
-  },
-  {
-    id: "startup-stakeholders",
-    name: "Startup Stakeholders",
-    personas: [
-      P("Founder", "You are a startup founder.", "Push for clarity of vision, focus, and cadence.", 0),
-      P("CTO", "You are a CTO.", "Probe technical feasibility, architecture, and risks.", 1),
-      P("CMO", "You are a CMO.", "Probe messaging, audience, and differentiation.", 2),
-      P("VC Investor", "You are a VC partner.", "Probe metrics, milestones, and risks.", 3),
-      P("Customer", "You are a prospective customer.", "Probe concrete value, outcomes, and adoption risks.", 4),
-    ],
-  },
-  {
-    id: "political-spectrum",
-    name: "Political Spectrum",
-    personas: [
-      P("Democratic Socialist", "You are a democratic socialist.", "Assess equity, public benefit, and ethical framing.", 0),
-      P("Center Left", "You are center-left.", "Assess policy realism and social impact.", 1),
-      P("Centrist/Independent", "You are centrist.", "Assess balance, tradeoffs, and fairness.", 2),
-      P("Center Right", "You are center-right.", "Assess fiscal prudence and efficiency.", 3),
-      P("MAGA", "You are a populist conservative.", "Assess national interest and plain-language clarity.", 4),
-      P("Libertarian", "You are libertarian.", "Assess individual freedom and regulatory burden.", 5),
-    ],
-  },
-  {
-    id: "product-review-board",
-    name: "Product Review Board",
-    personas: [
-      P("PM", "You are a product manager.", "Assess problem framing, success metrics, and scope.", 0),
-      P("Design Lead", "You are a design lead.", "Assess user flows, accessibility, and tone.", 1),
-      P("Data Scientist", "You are a data scientist.", "Assess measurability, data risks, and validity.", 2),
-      P("Security", "You are a security lead.", "Assess data handling, privacy, and threat modeling.", 3),
-      P("Support Lead", "You are a support lead.", "Assess failure modes and user communication.", 4),
-    ],
-  },
-  {
-    id: "scientific-peer-review",
-    name: "Scientific Peer Review",
-    personas: [
-      P("Methods Reviewer", "You examine methods and reproducibility.", "Check experimental detail and validity.", 0),
-      P("Stats Reviewer", "You examine statistical claims.", "Check sample size, tests, and uncertainty.", 1),
-      P("Domain Expert", "You examine domain-specific accuracy.", "Check citations and assumptions.", 2),
-      P("Ethics Reviewer", "You examine ethical and societal impact.", "Check risk mitigation and consent.", 3),
-    ],
-  },
-  {
-    id: "ux-research-panel",
-    name: "UX Research Panel",
-    personas: [
-      P("New User", "First-time user perspective.", "Assess onboarding clarity and cognitive load.", 0),
-      P("Power User", "Expert user perspective.", "Assess efficiency and discoverability.", 1),
-      P("Accessibility Advocate", "Accessibility lens.", "Assess contrast, semantics, and alt text.", 2),
-    ],
-  },
-  {
-    id: "sales-deal-desk",
-    name: "Sales Deal Desk",
-    personas: [
-      P("Sales Director", "Top-line growth focus.", "Assess messaging and objections.", 0),
-      P("Solutions Architect", "Technical fit focus.", "Assess integrations, constraints, and risks.", 1),
-      P("Legal (Customer)", "Customer counsel.", "Assess indemnities, data use, and SLAs.", 2),
-      P("Procurement", "Buyer procurement.", "Assess pricing clarity and comparables.", 3),
-    ],
-  },
-  {
-    id: "board-of-directors",
-    name: "Board of Directors",
-    personas: [
-      P("Chair", "Governance focus.", "Assess strategy coherence and oversight.", 0),
-      P("Audit", "Audit committee.", "Assess controls, risks, and reporting.", 1),
-      P("Compensation", "Comp committee.", "Assess incentives and fairness.", 2),
-    ],
-  },
-  {
-    id: "academic-committee",
-    name: "Academic Committee",
-    personas: [
-      P("Dean", "Academic leadership.", "Assess alignment to mission and rigor.", 0),
-      P("IRB Chair", "Research ethics.", "Assess consent, risk, and data handling.", 1),
-      P("Funding Reviewer", "Grant committee.", "Assess merit, feasibility, and budget.", 2),
-    ],
-  },
-];
-
-// ------------------------------
-// Globals
-// ------------------------------
+const LS_KEY = "pf.settings.v1";
 let SETTINGS: AppSettings;
 let LAST_RESULTS: PersonaRunResult[] = [];
 
-const el = (id: string) => document.getElementById(id)!;
+// Safe DOM helpers
+function byId<T extends HTMLElement>(id: string): T | null {
+  const el = document.getElementById(id) as T | null;
+  if (!el) console.warn(`[PF] Missing element #${id}`);
+  return el;
+}
+function req<T extends HTMLElement>(id: string): T {
+  const el = byId<T>(id);
+  if (!el) throw new Error(`Required element missing: #${id}`);
+  return el;
+}
 
+// Debug + UI helpers
 function log(msg: string, data?: any) {
-  if (data !== undefined) console.log(msg, data);
-  else console.log(msg);
-  const panel = el("debugLog");
+  if (data !== undefined) console.log(msg, data); else console.log(msg);
+  const panel = byId<HTMLDivElement>("debugLog");
+  if (!panel) return;
   const line = document.createElement("div");
   line.style.whiteSpace = "pre-wrap";
   line.textContent = data ? `${msg} ${safeJson(data)}` : msg;
@@ -230,42 +82,142 @@ function log(msg: string, data?: any) {
 function safeJson(x: any) { try { return JSON.stringify(x, null, 2); } catch { return String(x); } }
 
 function toast(t: string) {
-  const box = el("toast");
-  el("toastMsg").textContent = t;
+  const box = byId<HTMLDivElement>("toast"); if (!box) return;
+  const msg = byId<HTMLSpanElement>("toastMsg"); if (msg) msg.textContent = t;
   box.style.display = "block";
-  (el("toastClose") as HTMLSpanElement).onclick = () => (box.style.display = "none");
+  const close = byId<HTMLSpanElement>("toastClose");
+  if (close) close.onclick = () => (box.style.display = "none");
   setTimeout(() => (box.style.display = "none"), 3500);
 }
 
 function showView(id: "view-review" | "view-settings") {
-  const review = el("view-review");
-  const settings = el("view-settings");
-  const btnBack = el("btnBack");
+  const review = byId<HTMLDivElement>("view-review");
+  const settings = byId<HTMLDivElement>("view-settings");
+  const btnBack = byId<HTMLButtonElement>("btnBack");
   if (id === "view-review") {
-    review.classList.remove("hidden");
-    settings.classList.add("hidden");
-    btnBack.classList.add("hidden");
+    review && review.classList.remove("hidden");
+    settings && settings.classList.add("hidden");
+    btnBack && btnBack.classList.add("hidden");
   } else {
-    review.classList.add("hidden");
-    settings.classList.remove("hidden");
-    btnBack.classList.remove("hidden");
+    review && review.classList.add("hidden");
+    settings && settings.classList.remove("hidden");
+    btnBack && btnBack.classList.remove("hidden");
   }
 }
 
 function confirmAsync(title: string, message: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const overlay = el("confirmOverlay");
-    el("confirmTitle").textContent = title;
-    el("confirmMessage").textContent = message;
+    const overlay = req<HTMLDivElement>("confirmOverlay");
+    req<HTMLHeadingElement>("confirmTitle").textContent = title;
+    req<HTMLDivElement>("confirmMessage").textContent = message;
     overlay.style.display = "flex";
-    const ok = el("confirmOk"); const cancel = el("confirmCancel");
-    const done = (v: boolean) => { overlay.style.display = "none"; ok.removeEventListener("click", onOk); cancel.removeEventListener("click", onCancel); resolve(v); };
+    const ok = req<HTMLButtonElement>("confirmOk");
+    const cancel = req<HTMLButtonElement>("confirmCancel");
+    const done = (v: boolean) => {
+      overlay.style.display = "none";
+      ok.removeEventListener("click", onOk); cancel.removeEventListener("click", onCancel);
+      resolve(v);
+    };
     const onOk = () => done(true); const onCancel = () => done(false);
     ok.addEventListener("click", onOk); cancel.addEventListener("click", onCancel);
   });
 }
 
-const LS_KEY = "pf.settings.v1";
+// ---------- Defaults ----------
+function colorAt(i: number): HighlightColor { return WORD_COLORS[i % WORD_COLORS.length]; }
+
+const META_PROMPT = `
+You are a reviewer. Return ONLY valid JSON matching this schema:
+
+{
+  "scores": { "clarity": 0-100, "tone": 0-100, "alignment": 0-100 },
+  "global_feedback": "short paragraph",
+  "comments": [
+    { "quote": "verbatim snippet", "spanStart": 0, "spanEnd": 0, "comment": "feedback" }
+  ]
+}
+
+RULES:
+- No markdown.
+- 3–8 comments with accurate spanStart/spanEnd for the exact quote.
+- Global feedback ~2-5 sentences.
+`;
+
+function P(name: string, system: string, instruction: string, idx: number): Persona {
+  return {
+    id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+    enabled: true, name, system, instruction, color: colorAt(idx),
+  };
+}
+
+const DEFAULT_SETS: PersonaSet[] = [
+  {
+    id: "cross-functional-team", name: "Cross-Functional Team", personas: [
+      P("Senior Manager","You are a senior manager prioritizing clarity, risks, and outcomes.","Assess clarity of goals, risks, and expected outcomes.",0),
+      P("Legal","You are corporate counsel focused on compliance and risk.","Flag ambiguity, risky claims, missing disclaimers.",1),
+      P("HR","You are an HR business partner concerned with tone and inclusion.","Identify exclusionary tone and suggest inclusive language.",2),
+      P("Technical Lead","You are a pragmatic engineering lead.","Check feasibility, gaps, and technical risks.",3),
+      P("Junior Analyst","You are a detail-oriented junior analyst.","Call out unclear logic, missing data, or inconsistent units.",4),
+    ],
+  },
+  { id:"marketing-focus-group", name:"Marketing Focus Group", personas:[
+    P("Midwest Parent","You are a pragmatic parent from the US Midwest.","React to clarity, trustworthiness, and family benefit.",0),
+    P("Gen-Z Student","You are a digital-native college student.","React to tone, authenticity, and modern appeal.",1),
+    P("Retired Veteran","You are a retired veteran valuing respect and responsibility.","React to credibility and plain-language clarity.",2),
+    P("Small Business Owner","You are a small business owner.","React to practical value and ROI.",3),
+    P("Tech-savvy Pro","You are a tech-savvy professional.","React to precision and claims that need specifics.",4),
+  ]},
+  { id:"startup-stakeholders", name:"Startup Stakeholders", personas:[
+    P("Founder","You are a startup founder.","Push for clarity of vision, focus, and cadence.",0),
+    P("CTO","You are a CTO.","Probe technical feasibility, architecture, and risks.",1),
+    P("CMO","You are a CMO.","Probe messaging, audience, and differentiation.",2),
+    P("VC Investor","You are a VC partner.","Probe metrics, milestones, and risks.",3),
+    P("Customer","You are a prospective customer.","Probe concrete value, outcomes, and adoption risks.",4),
+  ]},
+  { id:"political-spectrum", name:"Political Spectrum", personas:[
+    P("Democratic Socialist","You are a democratic socialist.","Assess equity, public benefit, and ethical framing.",0),
+    P("Center Left","You are center-left.","Assess policy realism and social impact.",1),
+    P("Centrist/Independent","You are centrist.","Assess balance, tradeoffs, and fairness.",2),
+    P("Center Right","You are center-right.","Assess fiscal prudence and efficiency.",3),
+    P("MAGA","You are a populist conservative.","Assess national interest and plain-language clarity.",4),
+    P("Libertarian","You are libertarian.","Assess individual freedom and regulatory burden.",5),
+  ]},
+  { id:"product-review-board", name:"Product Review Board", personas:[
+    P("PM","You are a product manager.","Assess problem framing, success metrics, and scope.",0),
+    P("Design Lead","You are a design lead.","Assess user flows, accessibility, and tone.",1),
+    P("Data Scientist","You are a data scientist.","Assess measurability, data risks, and validity.",2),
+    P("Security","You are a security lead.","Assess data handling, privacy, and threat modeling.",3),
+    P("Support Lead","You are a support lead.","Assess failure modes and user communication.",4),
+  ]},
+  { id:"scientific-peer-review", name:"Scientific Peer Review", personas:[
+    P("Methods Reviewer","You examine methods and reproducibility.","Check experimental detail and validity.",0),
+    P("Stats Reviewer","You examine statistical claims.","Check sample size, tests, and uncertainty.",1),
+    P("Domain Expert","You examine domain-specific accuracy.","Check citations and assumptions.",2),
+    P("Ethics Reviewer","You examine ethical and societal impact.","Check risk mitigation and consent.",3),
+  ]},
+  { id:"ux-research-panel", name:"UX Research Panel", personas:[
+    P("New User","First-time user perspective.","Assess onboarding clarity and cognitive load.",0),
+    P("Power User","Expert user perspective.","Assess efficiency and discoverability.",1),
+    P("Accessibility Advocate","Accessibility lens.","Assess contrast, semantics, and alt text.",2),
+  ]},
+  { id:"sales-deal-desk", name:"Sales Deal Desk", personas:[
+    P("Sales Director","Top-line growth focus.","Assess messaging and objections.",0),
+    P("Solutions Architect","Technical fit focus.","Assess integrations, constraints, and risks.",1),
+    P("Legal (Customer)","Customer counsel.","Assess indemnities, data use, and SLAs.",2),
+    P("Procurement","Buyer procurement.","Assess pricing clarity and comparables.",3),
+  ]},
+  { id:"board-of-directors", name:"Board of Directors", personas:[
+    P("Chair","Governance focus.","Assess strategy coherence and oversight.",0),
+    P("Audit","Audit committee.","Assess controls, risks, and reporting.",1),
+    P("Compensation","Comp committee.","Assess incentives and fairness.",2),
+  ]},
+  { id:"academic-committee", name:"Academic Committee", personas:[
+    P("Dean","Academic leadership.","Assess alignment to mission and rigor.",0),
+    P("IRB Chair","Research ethics.","Assess consent, risk, and data handling.",1),
+    P("Funding Reviewer","Grant committee.","Assess merit, feasibility, and budget.",2),
+  ]},
+];
+
 function defaultSettings(): AppSettings {
   return {
     provider: { provider: "openrouter", model: "openrouter/auto", openrouterKey: "" },
@@ -292,33 +244,42 @@ function currentSet(): PersonaSet {
 
 function highlightToCss(h: HighlightColor): string {
   const map: Record<string, string> = {
-    yellow: "#fde047", darkYellow: "#f59e0b",
-    pink: "#f9a8d4", darkPink: "#db2777",
-    turquoise: "#5eead4", darkTurquoise: "#0d9488",
-    red: "#f87171", darkRed: "#b91c1c",
-    blue: "#93c5fd", darkBlue: "#1d4ed8",
-    green: "#86efac", darkGreen: "#166534",
-    violet: "#c4b5fd", darkViolet: "#6d28d9",
+    yellow:"#fde047", darkYellow:"#f59e0b",
+    pink:"#f9a8d4", darkPink:"#db2777",
+    turquoise:"#5eead4", darkTurquoise:"#0d9488",
+    red:"#f87171", darkRed:"#b91c1c",
+    blue:"#93c5fd", darkBlue:"#1d4ed8",
+    green:"#86efac", darkGreen:"#166534",
+    violet:"#c4b5fd", darkViolet:"#6d28d9",
   };
   return map[h] || "#fde047";
 }
 
+function escapeHtml(s: string) { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+// ---------- UI render ----------
 function populatePersonaSets() {
   const sets = SETTINGS.personaSets;
 
-  const reviewSel = el("personaSet") as HTMLSelectElement;
-  reviewSel.innerHTML = "";
-  sets.forEach((s) => {
-    const opt = document.createElement("option"); opt.value = s.id; opt.textContent = s.name; reviewSel.appendChild(opt);
-  });
-  reviewSel.value = SETTINGS.personaSetId;
+  const reviewSel = byId<HTMLSelectElement>("personaSet");
+  if (reviewSel) {
+    reviewSel.innerHTML = "";
+    sets.forEach((s) => {
+      const opt = document.createElement("option");
+      opt.value = s.id; opt.textContent = s.name; reviewSel.appendChild(opt);
+    });
+    reviewSel.value = SETTINGS.personaSetId;
+  }
 
-  const settingsSel = el("settingsPersonaSet") as HTMLSelectElement;
-  settingsSel.innerHTML = "";
-  sets.forEach((s) => {
-    const opt = document.createElement("option"); opt.value = s.id; opt.textContent = s.name; settingsSel.appendChild(opt);
-  });
-  settingsSel.value = SETTINGS.personaSetId;
+  const settingsSel = byId<HTMLSelectElement>("settingsPersonaSet");
+  if (settingsSel) {
+    settingsSel.innerHTML = "";
+    sets.forEach((s) => {
+      const opt = document.createElement("option");
+      opt.value = s.id; opt.textContent = s.name; settingsSel.appendChild(opt);
+    });
+    settingsSel.value = SETTINGS.personaSetId;
+  }
 
   renderPersonaNamesAndLegend();
   renderPersonaEditor();
@@ -326,26 +287,29 @@ function populatePersonaSets() {
 
 function renderPersonaNamesAndLegend() {
   const set = currentSet();
-  const list = el("personaList");
-  list.textContent = set.personas.filter(p => p.enabled).map((p) => p.name).join(", ");
+  const list = byId<HTMLSpanElement>("personaList");
+  if (list) list.textContent = set.personas.filter(p => p.enabled).map(p => p.name).join(", ");
 
-  const legend = el("legend");
-  legend.innerHTML = "";
-  set.personas.forEach((p) => {
-    const item = document.createElement("div");
-    item.className = "swatch";
-    const dot = document.createElement("span");
-    dot.className = "dot";
-    (dot.style as any).background = highlightToCss(p.color);
-    item.appendChild(dot);
-    item.appendChild(document.createTextNode(p.name));
-    legend.appendChild(item);
-  });
+  const legend = byId<HTMLDivElement>("legend");
+  if (legend) {
+    legend.innerHTML = "";
+    set.personas.forEach((p) => {
+      const item = document.createElement("div");
+      item.className = "swatch";
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      (dot.style as any).background = highlightToCss(p.color);
+      item.appendChild(dot);
+      item.appendChild(document.createTextNode(p.name));
+      legend.appendChild(item);
+    });
+  }
 }
 
 function renderPersonaEditor() {
   const set = currentSet();
-  const container = el("personaEditor");
+  const container = byId<HTMLDivElement>("personaEditor");
+  if (!container) return;
   container.innerHTML = "";
   set.personas.forEach((p, idx) => {
     const block = document.createElement("div");
@@ -371,14 +335,14 @@ function renderPersonaEditor() {
 }
 
 function hydrateProviderUI() {
-  (el("provider") as HTMLSelectElement).value = SETTINGS.provider.provider;
-  (el("openrouterKey") as HTMLInputElement).value = SETTINGS.provider.openrouterKey || "";
-  (el("model") as HTMLInputElement).value = SETTINGS.provider.model || "";
-  el("openrouterKeyRow").classList.toggle("hidden", SETTINGS.provider.provider !== "openrouter");
+  const prov = byId<HTMLSelectElement>("provider"); if (prov) prov.value = SETTINGS.provider.provider;
+  const key = byId<HTMLInputElement>("openrouterKey"); if (key) key.value = SETTINGS.provider.openrouterKey || "";
+  const model = byId<HTMLInputElement>("model"); if (model) model.value = SETTINGS.provider.model || "";
+  const keyRow = byId<HTMLDivElement>("openrouterKeyRow");
+  if (keyRow) keyRow.classList.toggle("hidden", SETTINGS.provider.provider !== "openrouter");
 }
-function escapeHtml(s: string) { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
-// Office bootstrap
+// ---------- Office bootstrap ----------
 window.addEventListener("error", (e) => { log(`[PF] window.error: ${e.message} @ ${e.filename}:${e.lineno}`); });
 window.addEventListener("unhandledrejection", (ev) => { log(`[PF] unhandledrejection: ${String(ev.reason)}`); });
 
@@ -389,66 +353,93 @@ Office.onReady(async () => {
   populatePersonaSets();
   hydrateProviderUI();
 
-  (el("btnSettings") as HTMLButtonElement).onclick = () => showView("view-settings");
-  (el("btnBack") as HTMLButtonElement).onclick = () => showView("view-review");
-  (el("toggleDebug") as HTMLButtonElement).onclick = () => {
-    el("debugPanel").classList.toggle("hidden");
-    (el("toggleDebug") as HTMLButtonElement).textContent =
-      el("debugPanel").classList.contains("hidden") ? "Show Debug" : "Hide Debug";
-  };
-  (el("clearDebug") as HTMLButtonElement).onclick = () => (el("debugLog").innerHTML = "");
+  const btnSettings = byId<HTMLButtonElement>("btnSettings");
+  if (btnSettings) btnSettings.onclick = () => showView("view-settings");
 
-  (el("personaSet") as HTMLSelectElement).onchange = (ev) => {
+  const btnBack = byId<HTMLButtonElement>("btnBack");
+  if (btnBack) btnBack.onclick = () => showView("view-review");
+
+  const toggleDebug = byId<HTMLButtonElement>("toggleDebug");
+  if (toggleDebug) toggleDebug.onclick = () => {
+    const panel = byId<HTMLDivElement>("debugPanel"); if (!panel) return;
+    panel.classList.toggle("hidden");
+    toggleDebug.textContent = panel.classList.contains("hidden") ? "Show Debug" : "Hide Debug";
+  };
+
+  const clearDebug = byId<HTMLButtonElement>("clearDebug");
+  if (clearDebug) clearDebug.onclick = () => { const p = byId<HTMLDivElement>("debugLog"); if (p) p.innerHTML = ""; };
+
+  const reviewSel = byId<HTMLSelectElement>("personaSet");
+  if (reviewSel) reviewSel.onchange = (ev) => {
     SETTINGS.personaSetId = (ev.target as HTMLSelectElement).value;
     saveSettings();
     populatePersonaSets();
   };
-  (el("runBtn") as HTMLButtonElement).onclick = handleRunReview;
-  (el("retryBtn") as HTMLButtonElement).onclick = handleRetryFailed;
-  (el("exportBtn") as HTMLButtonElement).onclick = handleExportReport;
 
-  (el("clearBtn") as HTMLButtonElement).onclick = async () => {
+  const runBtn = byId<HTMLButtonElement>("runBtn");
+  if (runBtn) runBtn.onclick = handleRunReview;
+
+  const retryBtn = byId<HTMLButtonElement>("retryBtn");
+  if (retryBtn) retryBtn.onclick = handleRetryFailed;
+
+  const exportBtn = byId<HTMLButtonElement>("exportBtn");
+  if (exportBtn) exportBtn.onclick = handleExportReport;
+
+  const clearBtn = byId<HTMLButtonElement>("clearBtn");
+  if (clearBtn) clearBtn.onclick = async () => {
     if (!(await confirmAsync("Clear PF", "Remove Persona Feedback comments and highlights created by this add-in?"))) return;
     await clearPersonaFeedbackOnly();
     toast("Persona Feedback comments cleared.");
   };
-  (el("clearAllBtn") as HTMLButtonElement).onclick = async () => {
+
+  const clearAllBtn = byId<HTMLButtonElement>("clearAllBtn");
+  if (clearAllBtn) clearAllBtn.onclick = async () => {
     if (!(await confirmAsync("Clear ALL", "Delete ALL comments in this document? This cannot be undone."))) return;
     await clearAllComments();
     toast("All comments deleted.");
   };
 
-  (el("provider") as HTMLSelectElement).onchange = (ev) => {
+  const prov = byId<HTMLSelectElement>("provider");
+  if (prov) prov.onchange = (ev) => {
     SETTINGS.provider.provider = (ev.target as HTMLSelectElement).value as Provider;
-    hydrateProviderUI();
-    saveSettings();
+    hydrateProviderUI(); saveSettings();
   };
-  (el("openrouterKey") as HTMLInputElement).oninput = (ev) => {
-    SETTINGS.provider.openrouterKey = (ev.target as HTMLInputElement).value;
-    saveSettings();
+
+  const key = byId<HTMLInputElement>("openrouterKey");
+  if (key) key.oninput = (ev) => {
+    SETTINGS.provider.openrouterKey = (ev.target as HTMLInputElement).value; saveSettings();
   };
-  (el("model") as HTMLInputElement).oninput = (ev) => {
-    SETTINGS.provider.model = (ev.target as HTMLInputElement).value;
-    saveSettings();
+
+  const model = byId<HTMLInputElement>("model");
+  if (model) model.oninput = (ev) => {
+    SETTINGS.provider.model = (ev.target as HTMLInputElement).value; saveSettings();
   };
-  (el("settingsPersonaSet") as HTMLSelectElement).onchange = (ev) => {
-    SETTINGS.personaSetId = (ev.target as HTMLSelectElement).value;
-    saveSettings();
-    populatePersonaSets();
+
+  const settingsSel = byId<HTMLSelectElement>("settingsPersonaSet");
+  if (settingsSel) settingsSel.onchange = (ev) => {
+    SETTINGS.personaSetId = (ev.target as HTMLSelectElement).value; saveSettings(); populatePersonaSets();
   };
-  (el("saveSettings") as HTMLButtonElement).onclick = () => {
+
+  const saveSettingsBtn = byId<HTMLButtonElement>("saveSettings");
+  if (saveSettingsBtn) saveSettingsBtn.onclick = () => {
     const set = currentSet();
     set.personas.forEach((p, idx) => {
-      p.enabled = (el(`pe-enabled-${idx}`) as HTMLInputElement).checked;
-      p.system = (el(`pe-sys-${idx}`) as HTMLInputElement).value;
-      p.instruction = (el(`pe-ins-${idx}`) as HTMLInputElement).value;
-      p.color = (el(`pe-color-${idx}`) as HTMLSelectElement).value as HighlightColor;
+      const chk = byId<HTMLInputElement>(`pe-enabled-${idx}`);
+      const sys = byId<HTMLInputElement>(`pe-sys-${idx}`);
+      const ins = byId<HTMLInputElement>(`pe-ins-${idx}`);
+      const col = byId<HTMLSelectElement>(`pe-color-${idx}`);
+      if (chk) p.enabled = chk.checked;
+      if (sys) p.system = sys.value;
+      if (ins) p.instruction = ins.value;
+      if (col) p.color = (col.value as HighlightColor);
     });
     saveSettings();
     renderPersonaNamesAndLegend();
     toast("Settings saved");
   };
-  (el("restoreDefaults") as HTMLButtonElement).onclick = () => {
+
+  const restoreDefaultsBtn = byId<HTMLButtonElement>("restoreDefaults");
+  if (restoreDefaultsBtn) restoreDefaultsBtn.onclick = () => {
     const curr = currentSet().id;
     const fresh = DEFAULT_SETS.find((s) => s.id === curr);
     if (fresh) {
@@ -463,32 +454,44 @@ Office.onReady(async () => {
   showView("view-review");
 });
 
-// Actions
+// ---------- Actions ----------
 async function handleRunReview() {
   LAST_RESULTS = [];
-  el("results").innerHTML = "";
-  el("personaStatus").innerHTML = "";
+  const res = byId<HTMLDivElement>("results"); if (res) res.innerHTML = "";
+  const stat = byId<HTMLDivElement>("personaStatus"); if (stat) stat.innerHTML = "";
   await runAllEnabledPersonas(false);
 }
 async function handleRetryFailed() { await runAllEnabledPersonas(true); }
+
+function setProgress(pct: number) {
+  const bar = byId<HTMLDivElement>("progBar"); if (bar) bar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+}
+function setBadge(personaId: string, status: PersonaRunStatus, note?: string) {
+  const b = byId<HTMLSpanElement>(`badge-${personaId}`); if (!b) return;
+  b.className = "badge " + (status === "done" ? "badge-done" : status === "error" ? "badge-failed" : "");
+  b.textContent = status + (note ? ` – ${note}` : "");
+}
 
 async function runAllEnabledPersonas(retryOnly: boolean) {
   const set = currentSet();
   const personas = set.personas.filter((p) => p.enabled);
   if (!personas.length) { toast("No personas enabled in this set."); return; }
 
-  const statusHost = el("personaStatus"); statusHost.innerHTML = "";
-  personas.forEach((p) => {
-    const row = document.createElement("div");
-    row.id = `status-${p.id}`; row.className = "row";
-    row.innerHTML = `
-      <span style="display:inline-flex;align-items:center;gap:6px;">
-        <span class="dot" style="background:${highlightToCss(p.color)}"></span>
-        ${p.name}
-      </span>
-      <span id="badge-${p.id}" class="badge">queued</span>`;
-    statusHost.appendChild(row);
-  });
+  const statusHost = byId<HTMLDivElement>("personaStatus");
+  if (statusHost) {
+    statusHost.innerHTML = "";
+    personas.forEach((p) => {
+      const row = document.createElement("div");
+      row.id = `status-${p.id}`; row.className = "row";
+      row.innerHTML = `
+        <span style="display:inline-flex;align-items:center;gap:6px;">
+          <span class="dot" style="background:${highlightToCss(p.color)}"></span>
+          ${p.name}
+        </span>
+        <span id="badge-${p.id}" class="badge">queued</span>`;
+      statusHost.appendChild(row);
+    });
+  }
 
   const docText = await getWholeDocText();
   const total = personas.length; let done = 0;
@@ -506,7 +509,7 @@ async function runAllEnabledPersonas(retryOnly: boolean) {
       const normalized = normalizeResponse(resp);
       await applyCommentsAndHighlights(p, normalized, docText);
       addResultCard(p, normalized);
-      LAST_RESULTS = upsertResult(LAST_RESULTS, {
+      upsertResult({
         personaId: p.id, personaName: p.name, status: "done",
         scores: normalized.scores, global_feedback: normalized.global_feedback,
         comments: normalized.comments, raw: resp,
@@ -514,7 +517,7 @@ async function runAllEnabledPersonas(retryOnly: boolean) {
       setBadge(p.id, "done");
     } catch (err: any) {
       log(`[PF] Persona ${p.name} error`, err);
-      LAST_RESULTS = upsertResult(LAST_RESULTS, {
+      upsertResult({
         personaId: p.id, personaName: p.name, status: "error", error: String(err?.message || err),
       });
       setBadge(p.id, "error", String(err?.message || "LLM call failed"));
@@ -523,19 +526,13 @@ async function runAllEnabledPersonas(retryOnly: boolean) {
   }
   toast("Review finished.");
 }
-function upsertResult(arr: PersonaRunResult[], r: PersonaRunResult): PersonaRunResult[] {
-  const idx = arr.findIndex((x) => x.personaId === r.personaId);
-  if (idx >= 0) arr[idx] = r; else arr.push(r);
-  return arr;
-}
-function setProgress(pct: number) { (el("progBar") as HTMLDivElement).style.width = `${Math.max(0, Math.min(100, pct))}%`; }
-function setBadge(personaId: string, status: PersonaRunStatus, note?: string) {
-  const b = el(`badge-${personaId}`);
-  b.className = "badge " + (status === "done" ? "badge-done" : status === "error" ? "badge-failed" : "");
-  b.textContent = status + (note ? ` – ${note}` : "");
+
+function upsertResult(r: PersonaRunResult) {
+  const idx = LAST_RESULTS.findIndex((x) => x.personaId === r.personaId);
+  if (idx >= 0) LAST_RESULTS[idx] = r; else LAST_RESULTS.push(r);
 }
 
-// Word helpers
+// ---------- Word helpers ----------
 async function getWholeDocText(): Promise<string> {
   return Word.run(async (ctx) => {
     const body = ctx.document.body; body.load("text"); await ctx.sync(); return body.text || "";
@@ -559,8 +556,7 @@ async function addCommentAtRange(persona: Persona, start: number, end: number, t
   await Word.run(async (ctx) => {
     const body = ctx.document.body;
     const range = body.getRange("Start").expandTo(body.getRange("End"));
-    // TS typing shim (runtime supports getSubstring on Range; typings in some office-js versions do not)
-    const cRange = (range as any).getSubstring(start, end - start);
+    const cRange = (range as any).getSubstring(start, end - start); // TS shim
     (cRange.font as any).highlightColor = persona.color as any;
     cRange.insertComment(text);
     await ctx.sync();
@@ -577,7 +573,7 @@ async function addCommentAtStart(persona: Persona, text: string) {
 }
 async function clearAllComments() {
   await Word.run(async (ctx) => {
-    const comments = (ctx.document as any).comments; // TS typing shim
+    const comments = (ctx.document as any).comments; // TS shim
     comments.load("items"); await ctx.sync();
     for (const c of comments.items) c.delete();
     const rng = ctx.document.body.getRange("Whole");
@@ -587,7 +583,7 @@ async function clearAllComments() {
 }
 async function clearPersonaFeedbackOnly() {
   await Word.run(async (ctx) => {
-    const comments = (ctx.document as any).comments; // TS typing shim
+    const comments = (ctx.document as any).comments; // TS shim
     comments.load("items,items/content"); await ctx.sync();
     for (const c of comments.items) { if (c.content && /^\[[^\]]+\]/.test(c.content)) c.delete(); }
     const rng = ctx.document.body.getRange("Whole");
@@ -596,18 +592,10 @@ async function clearPersonaFeedbackOnly() {
   });
 }
 
-// LLM calls
+// ---------- LLM ----------
 async function callLLMForPersona(persona: Persona, docText: string): Promise<any> {
   const sys = `${persona.system}\n\n${META_PROMPT}`.trim();
-  const user = `
-You are acting as: ${persona.name}
-
-INSTRUCTION:
-${persona.instruction}
-
-DOCUMENT (plain text):
-${docText}
-`.trim();
+  const user = `You are acting as: ${persona.name}\n\nINSTRUCTION:\n${persona.instruction}\n\nDOCUMENT (plain text):\n${docText}`.trim();
 
   const provider = SETTINGS.provider;
   log(`[PF] Calling LLM → ${provider.provider} / ${provider.model} (${persona.name})`);
@@ -659,9 +647,9 @@ function normalizeResponse(resp: any) {
   return { scores, comments, global_feedback };
 }
 
-// Results UI
+// ---------- Results UI ----------
 function addResultCard(persona: Persona, data: { scores: { clarity: number; tone: number; alignment: number }; global_feedback: string }) {
-  const host = el("results");
+  const host = byId<HTMLDivElement>("results"); if (!host) return;
   const card = document.createElement("div");
   card.className = "result-card";
   const { clarity, tone, alignment } = data.scores;
@@ -689,7 +677,6 @@ function addResultCard(persona: Persona, data: { scores: { clarity: number; tone
   host.appendChild(card);
 }
 
-// Export
 async function handleExportReport() {
   const payload = { timestamp: new Date().toISOString(), set: currentSet().name, results: LAST_RESULTS, model: SETTINGS.provider };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
