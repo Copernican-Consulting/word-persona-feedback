@@ -2,12 +2,12 @@
 
 /**
  * Persona Feedback – Word Add-in task pane
- * - Color badge = derived from the exact persona HEX (pane + comments match)
+ * - Pane & comment colors match (derived from persona HEX)
  * - Summaries only in task pane (no body insertion)
- * - Single “Clear comments” that wipes all via document.comments
+ * - One “Clear comments” button wipes all via document.comments
  * - Thick traffic-light bars (green ≥80, yellow 50–79, red <50)
- * - Export opens print-ready report so you can Save as PDF
- * - Run lock to prevent duplicate runs
+ * - Export opens print-ready report (use browser “Save as PDF”)
+ * - Run lock prevents duplicate runs
  */
 
 type Provider = "openrouter" | "ollama";
@@ -42,7 +42,7 @@ function showView(id:"view-review"|"view-settings"){ const r=byId<HTMLDivElement
 function confirmAsync(title:string,message:string){ return new Promise<boolean>(res=>{ const o=req<HTMLDivElement>("confirmOverlay"); req<HTMLHeadingElement>("confirmTitle").textContent=title; req<HTMLDivElement>("confirmMessage").textContent=message; o.style.display="flex"; const ok=req<HTMLButtonElement>("confirmOk"); const no=req<HTMLButtonElement>("confirmCancel"); const done=(v:boolean)=>{o.style.display="none"; ok.onclick=null; no.onclick=null; res(v);}; ok.onclick=()=>done(true); no.onclick=()=>done(false);}); }
 function escapeHtml(s:string){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
-// ---------- Color: derive emoji from HEX hue so pane + comments match ----------
+// ---------- Color helpers ----------
 function hexToRgb(hex:string){ const m = hex.trim().replace("#",""); if(m.length!==6) return {r:200,g:200,b:200}; return { r:parseInt(m.slice(0,2),16), g:parseInt(m.slice(2,4),16), b:parseInt(m.slice(4,6),16) }; }
 function rgbToHue({r,g,b}:{r:number;g:number;b:number}){ r/=255; g/=255; b/=255; const max=Math.max(r,g,b), min=Math.min(r,g,b); const d=max-min; let h=0; if(d===0) h=0; else if(max===r) h=((g-b)/d)%6; else if(max===g) h=(b-r)/d+2; else h=(r-g)/d+4; h=Math.round(h*60); if(h<0) h+=360; return h; }
 function hueToEmoji(h:number){
@@ -196,7 +196,6 @@ async function runAllEnabledPersonas(retryOnly:boolean){
   }
   toast("Review finished.");
 }
-function upsertResult(r:PersonaRunResult){ const i=LAST_RESULTS.findIndex(x=>x.personaId===r.personaId); if(i>=0) LAST_RESULTS[i]=r; else LAST_RESULTS.push(r); }
 
 // ---------- Word helpers ----------
 async function getWholeDocText():Promise<string>{
@@ -357,8 +356,17 @@ function handleExportPDF(){
   window.open(url, "_blank");
 }
 
-// ---------- Helpers ----------
+// ---------- Results bookkeeping ----------
 function upsert<T extends { personaId:string }>(arr:T[], item:T){ const i=arr.findIndex(x=>x.personaId===item.personaId); if(i>=0) arr[i]=item; else arr.push(item); }
-function upsertResultHelper(r:PersonaRunResult){ upsert(LAST_RESULTS, r); }
-// Keep name consistency used above:
-function upsertResult(r:PersonaRunResult){ upsertResultHelper(r); }
+function upsertResult(r:PersonaRunResult){ upsert(LAST_RESULTS, r); }
+
+// ---------- LLM utils ----------
+function parseJsonFromText(text:string){ const m=text.match(/```json([\s\S]*?)```/i) || text.match(/```([\s\S]*?)```/); const raw=m?m[1]:text; try{ return JSON.parse(raw.trim()); }catch{ log("[PF] JSON parse error; full text follows",{text}); throw new Error("Model returned non-JSON. See Debug for raw output."); } }
+function normalizeResponse(resp:any){ const clamp=(n:number)=>Math.max(0,Math.min(100,Math.round(n))); return {
+  scores:{ clarity:clamp(Number(resp?.scores?.clarity??0)), tone:clamp(Number(resp?.scores?.tone??0)), alignment:clamp(Number(resp?.scores?.alignment??0)) },
+  comments:Array.isArray(resp?.comments)?resp.comments.slice(0,12):[],
+  global_feedback:String(resp?.global_feedback||"")
+}; }
+
+// ---------- Utility UI ----------
+function setProgress(p:number){ const bar=byId<HTMLDivElement>("progBar"); if(bar) bar.style.width=`${Math.max(0,Math.min(100,p))}%`; }
