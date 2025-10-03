@@ -9,15 +9,12 @@
     :root { color-scheme: light; }
     body { font-family: Segoe UI, Roboto, Arial, sans-serif; margin: 12px; }
     h1 { font-size: 16px; margin: 0 0 8px; display:flex; align-items:center; justify-content:space-between; }
+    h3 { margin: 0 0 6px; }
     .row { margin: 8px 0; }
     select, input[type=text], input[type=password] { width: 100%; padding: 6px; }
+    input[type=color] { width: 40px; height: 28px; padding: 0; border: 1px solid #e5e7eb; border-radius: 6px; vertical-align: middle; }
     button { padding: 6px 10px; margin-right: 6px; }
     .link { color: #2563eb; cursor: pointer; }
-    .chip { display:inline-block; padding:2px 6px; border-radius:10px; font-size:12px; }
-    .queued { background:#eef2ff; color:#3730a3; }
-    .running { background:#fff7ed; color:#9a3412; }
-    .done { background:#ecfdf5; color:#065f46; }
-    .failed { background:#fef2f2; color:#991b1b; }
     .muted { color:#6b7280; }
     .section { border-top:1px solid #e5e7eb; margin-top:12px; padding-top:12px; }
     .toast { position: fixed; top: 10px; right: 10px; background:#111827; color:#fff; padding:10px 12px; border-radius:8px; display:none; z-index: 9999; }
@@ -26,12 +23,22 @@
     .progress { height:6px; background:#e5e7eb; border-radius:4px; overflow:hidden; }
     .bar { height:100%; width:0%; background:#2563eb; transition: width .2s ease; }
     .debug { background:#f9fafb; border:1px solid #e5e7eb; padding:8px; border-radius:8px; max-height:180px; overflow:auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; }
+    .legend { display:flex; gap:8px; flex-wrap:wrap; }
+    .swatch { display:inline-flex; align-items:center; gap:6px; padding:2px 6px; border:1px solid #e5e7eb; border-radius:999px; font-size:12px; background:#fff; }
+    .dot { width:10px; height:10px; border-radius:50%; border:1px solid #d1d5db; }
+    .scorebar { height:8px; background:#e5e7eb; border-radius:4px; overflow:hidden; margin-top:4px; }
+    .scorebar-fill { height:100%; width:0%; background:#2563eb; transition: width .3s ease; }
+    .result-card { border:1px solid #e5e7eb; border-radius:10px; padding:8px; margin-bottom:8px; background:#fff; }
+    .persona-list { margin-top:6px; }
   </style>
 </head>
 <body>
   <h1>
     <span>Persona Feedback</span>
-    <span id="gear" class="link">⚙ Settings</span>
+    <span>
+      <button id="exportBtn" title="Export persona report">Export Report</button>
+      <span id="gear" class="link">⚙ Settings</span>
+    </span>
   </h1>
 
   <!-- Review view -->
@@ -39,7 +46,7 @@
     <div class="row">
       <label>Personas</label>
       <select id="personaSet"></select>
-      <div id="personaList" class="muted" style="margin-top:6px;"></div>
+      <div id="personaList" class="persona-list muted"></div>
     </div>
 
     <div class="row">
@@ -47,18 +54,23 @@
       <button id="toggleDebug" class="muted">Show Debug</button>
     </div>
 
-    <div id="statusArea" class="section">
-      <div class="progress"><div id="progBar" class="bar"></div></div>
+    <div class="section">
+      <h3 style="display:flex;justify-content:space-between;align-items:center;">
+        <span>Status</span>
+        <span class="muted" style="font-weight:normal;">Legend</span>
+      </h3>
+      <div class="legend" id="legend"></div>
+      <div style="margin-top:8px;" class="progress"><div id="progBar" class="bar"></div></div>
       <div id="personaStatus" style="margin-top:8px;"></div>
     </div>
 
     <div class="section">
-      <h3 style="margin:0 0 6px;">Results</h3>
+      <h3>Results</h3>
       <div id="results"></div>
     </div>
 
     <div id="debugPanel" class="section hidden">
-      <h3 style="margin:0 0 6px;">Debug</h3>
+      <h3>Debug</h3>
       <div id="debugLog" class="debug"></div>
       <button id="clearDebug" class="muted">Clear</button>
     </div>
@@ -106,7 +118,6 @@
 
   <!-- Office.js must load before your bundle -->
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-
   <!-- Your bundle -->
   <script src="taskpane.bundle.js"></script>
 </body>

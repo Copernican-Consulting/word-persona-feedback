@@ -1,7 +1,9 @@
 /* global Office, Word */
 import { DEFAULT_SETS, PersonaSet, Persona } from "./personas";
 
-// ---------- Types ----------
+/* =========================
+      TYPES / CONSTANTS
+========================= */
 type Settings = {
   provider: "openrouter" | "ollama";
   openrouterKey?: string;
@@ -11,9 +13,11 @@ type Settings = {
 };
 
 type PersonaRunState = "queued" | "running" | "done" | "failed";
-const STORAGE_KEY = "pf_settings_v2";
+const STORAGE_KEY = "pf_settings_v3";
 
-// ---------- Utils ----------
+/* =========================
+            UTILS
+========================= */
 const clone = <T,>(o: T): T => {
   try { /* @ts-ignore */ if (typeof structuredClone === "function") return structuredClone(o); } catch {}
   return JSON.parse(JSON.stringify(o));
@@ -36,42 +40,47 @@ function showToast(msg: string) {
   const toast = document.getElementById("toast") as HTMLDivElement | null;
   const toastMsg = document.getElementById("toastMsg") as HTMLSpanElement | null;
   const toastClose = document.getElementById("toastClose") as HTMLSpanElement | null;
-  if (!toast || !toastMsg || !toastClose) {
-    debug("toast missing", msg);
-    alert(msg); // fallback
-    return;
-  }
+  if (!toast || !toastMsg || !toastClose) { alert(msg); return; }
   toastMsg.textContent = msg;
   toast.style.display = "block";
   const hide = () => { toast.style.display = "none"; toastClose.removeEventListener("click", hide); };
   toastClose.addEventListener("click", hide);
-  setTimeout(hide, 3000);
-
-  if (/error|failed|missing|could not/i.test(msg)) {
-    const dp = document.getElementById("debugPanel");
-    const td = document.getElementById("toggleDebug");
-    if (dp && td) { dp.classList.remove("hidden"); (td as HTMLButtonElement).textContent = "Hide Debug"; }
-  }
+  setTimeout(hide, 2200);
 }
 
-// Mirror unexpected errors into debug
-(function attachGlobalErrorHooks() {
-  (window as any).addEventListener("error", (e: ErrorEvent) => {
-    const msg = `window.error: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`;
-    console.error(msg, e.error);
-    debug(msg);
-  });
-  (window as any).addEventListener("unhandledrejection", (e: PromiseRejectionEvent) => {
-    const msg = `unhandledrejection: ${String(e.reason)}`;
-    console.error(msg);
-    debug(msg);
-  });
-})();
+/* Map a hex color to the closest Word highlight color enum */
+type HL = Word.RangeHighlightColor;
+const HIGHLIGHT_ENUMS: HL[] = [
+  "yellow","pink","brightGreen","turquoise","lightGray","violet","darkYellow","darkBlue","darkRed",
+  "teal","brown","darkGreen","darkTeal","indigo","orange","blue","red","green","black","gray25","gray50","noColor"
+];
+function hexToHighlightColor(hex?: string): HL {
+  if (!hex) return "noColor";
+  const rgb = (h: string) => {
+    const s = h.replace("#",""); return [0,2,4].map(i => parseInt(s.substring(i,i+2),16));
+  };
+  const c = rgb(hex);
+  // crude mapping by hue buckets
+  const [r,g,b] = c;
+  if (r>230 && g>200 && b<100) return "yellow";
+  if (r>230 && g<160 && b>200) return "violet";
+  if (r>230 && g<160 && b<160) return "pink";
+  if (g>220 && r<160 && b<160) return "brightGreen";
+  if (g>180 && b>180 && r<100) return "turquoise";
+  if (r>240 && g>170 && b<120) return "orange";
+  if (r>150 && g>180 && b>220) return "blue";
+  if (r>200 && g>200 && b>200) return "lightGray";
+  return "noColor";
+}
 
-// ---------- State ----------
+/* =========================
+           STATE
+========================= */
 let settings: Settings;
 
-// ---------- Persistence ----------
+/* =========================
+       PERSISTENCE
+========================= */
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -89,19 +98,30 @@ function loadSettings(): Settings {
 }
 function saveSettings() { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); }
 
-// ---------- Render ----------
+/* =========================
+           RENDER
+========================= */
 function switchView(view: "review" | "settings") {
   const review = document.getElementById("view-review");
   const settingsView = document.getElementById("view-settings");
-  if (!review || !settingsView) { debug("switchView missing containers"); return; }
+  if (!review || !settingsView) return;
   review.classList.toggle("hidden", view !== "review");
   settingsView.classList.toggle("hidden", view !== "settings");
+}
+
+function renderLegend() {
+  const legend = document.getElementById("legend")!;
+  const set = settings.personaSets[settings.activeSetId];
+  const enabled = set.personas.filter(p => p.enabled);
+  legend.innerHTML = enabled.map(p =>
+    `<span class="swatch"><span class="dot" style="background:${p.color || '#e5e7eb'}"></span>${p.name}</span>`
+  ).join("");
 }
 
 function renderPersonaSetSelectors() {
   const personaSet = document.getElementById("personaSet") as HTMLSelectElement | null;
   const personaList = document.getElementById("personaList") as HTMLDivElement | null;
-  if (!personaSet || !personaList) { debug("renderPersonaSetSelectors missing elements"); return; }
+  if (!personaSet || !personaList) return;
 
   const sets = Object.values(settings.personaSets);
   personaSet.innerHTML = sets.map(s => `<option value="${s.id}">${s.name}</option>`).join("");
@@ -111,6 +131,8 @@ function renderPersonaSetSelectors() {
     .filter(p => p.enabled)
     .map(p => p.name) || [];
   personaList.textContent = names.join(" • ");
+
+  renderLegend();
 }
 
 function renderSettingsForm() {
@@ -120,10 +142,7 @@ function renderSettingsForm() {
   const model = document.getElementById("model") as HTMLInputElement | null;
   const settingsPersonaSet = document.getElementById("settingsPersonaSet") as HTMLSelectElement | null;
 
-  if (!provider || !openrouterKeyRow || !openrouterKey || !model || !settingsPersonaSet) {
-    debug("renderSettingsForm missing elements");
-    return;
-  }
+  if (!provider || !openrouterKeyRow || !openrouterKey || !model || !settingsPersonaSet) return;
 
   provider.value = settings.provider;
   openrouterKey.value = settings.openrouterKey || "";
@@ -137,14 +156,9 @@ function renderSettingsForm() {
   renderPersonaEditor();
 }
 
-function renderPersonaEditor() {
-  const settingsPersonaSet = document.getElementById("settingsPersonaSet") as HTMLSelectElement | null;
-  const personaEditor = document.getElementById("personaEditor") as HTMLDivElement | null;
-  if (!settingsPersonaSet || !personaEditor) { debug("renderPersonaEditor missing elements"); return; }
-  const set = settings.personaSets[settingsPersonaSet.value];
-  if (!set) { debug("renderPersonaEditor no set", settingsPersonaSet.value); return; }
-
-  personaEditor.innerHTML = set.personas.map(p => `
+function personaRow(p: Persona) {
+  const esc = (s: string) => s.replace(/"/g, "&quot;");
+  return `
     <div class="section">
       <label>
         <input type="checkbox" data-id="${p.id}" class="pe-enabled" ${p.enabled ? "checked" : ""}/>
@@ -152,18 +166,31 @@ function renderPersonaEditor() {
       </label>
       <div class="row">
         <label>Name</label>
-        <input type="text" class="pe-name" data-id="${p.id}" value="${p.name.replace(/"/g, "&quot;")}"/>
+        <input type="text" class="pe-name" data-id="${p.id}" value="${esc(p.name)}"/>
+      </div>
+      <div class="row">
+        <label>Color</label>
+        <input type="color" class="pe-color" data-id="${p.id}" value="${p.color || "#e5e7eb"}" />
       </div>
       <div class="row">
         <label>System Prompt</label>
-        <input type="text" class="pe-system" data-id="${p.id}" value="${p.system.replace(/"/g, "&quot;")}"/>
+        <input type="text" class="pe-system" data-id="${p.id}" value="${esc(p.system)}"/>
       </div>
       <div class="row">
         <label>Instruction Prompt</label>
-        <input type="text" class="pe-instruction" data-id="${p.id}" value="${p.instruction.replace(/"/g, "&quot;")}"/>
+        <input type="text" class="pe-instruction" data-id="${p.id}" value="${esc(p.instruction)}"/>
       </div>
     </div>
-  `).join("");
+  `;
+}
+
+function renderPersonaEditor() {
+  const settingsPersonaSet = document.getElementById("settingsPersonaSet") as HTMLSelectElement | null;
+  const personaEditor = document.getElementById("personaEditor") as HTMLDivElement | null;
+  if (!settingsPersonaSet || !personaEditor) return;
+
+  const set = settings.personaSets[settingsPersonaSet.value];
+  personaEditor.innerHTML = set.personas.map(personaRow).join("");
 
   // Wire inputs
   personaEditor.querySelectorAll<HTMLInputElement>(".pe-enabled").forEach(inp => {
@@ -174,6 +201,9 @@ function renderPersonaEditor() {
   });
   personaEditor.querySelectorAll<HTMLInputElement>(".pe-name").forEach(inp => {
     inp.oninput = () => { const p = set.personas.find(x => x.id === inp.dataset.id)!; p.name = inp.value; saveSettings(); renderPersonaSetSelectors(); };
+  });
+  personaEditor.querySelectorAll<HTMLInputElement>(".pe-color").forEach(inp => {
+    inp.oninput = () => { const p = set.personas.find(x => x.id === inp.dataset.id)!; p.color = inp.value; saveSettings(); renderLegend(); };
   });
   personaEditor.querySelectorAll<HTMLInputElement>(".pe-system").forEach(inp => {
     inp.oninput = () => { const p = set.personas.find(x => x.id === inp.dataset.id)!; p.system = inp.value; saveSettings(); };
@@ -186,14 +216,26 @@ function renderPersonaEditor() {
 function renderStatuses(status: Record<string, PersonaRunState>) {
   const personaStatus = document.getElementById("personaStatus") as HTMLDivElement | null;
   const progBar = document.getElementById("progBar") as HTMLDivElement | null;
-  if (!personaStatus || !progBar) { debug("renderStatuses missing elements"); return; }
+  if (!personaStatus || !progBar) return;
 
   const set = settings.personaSets[settings.activeSetId];
   const enabled = set.personas.filter(p => p.enabled);
   personaStatus.innerHTML = enabled.map(p => {
     const st = status[p.id] || "queued";
-    const cls = st === "running" ? "running" : st === "done" ? "done" : st === "failed" ? "failed" : "queued";
-    return `<div class="row"><span class="chip ${cls}">${p.name}: ${st}</span></div>`;
+    const color = p.color || "#e5e7eb";
+    const bg = st === "running" ? "#fff7ed"
+      : st === "done" ? "#ecfdf5"
+      : st === "failed" ? "#fef2f2" : "#eef2ff";
+    const fg = st === "running" ? "#9a3412"
+      : st === "done" ? "#065f46"
+      : st === "failed" ? "#991b1b" : "#3730a3";
+    return `
+      <div class="row" style="display:flex;align-items:center;gap:8px;">
+        <span class="dot" style="background:${color}"></span>
+        <span style="background:${bg};color:${fg};padding:2px 6px;border-radius:10px;font-size:12px;">
+          ${p.name}: ${st}
+        </span>
+      </div>`;
   }).join("");
 
   const total = enabled.length;
@@ -201,26 +243,45 @@ function renderStatuses(status: Record<string, PersonaRunState>) {
   progBar.style.width = total ? `${Math.floor((done / total) * 100)}%` : "0%";
 }
 
+function scoreBarHTML(val?: number) {
+  const v = Math.max(0, Math.min(100, Number(val ?? 0)));
+  return `
+    <div class="scorebar"><div class="scorebar-fill" style="width:${v}%"></div></div>
+    <div class="muted" style="font-size:12px;margin-top:2px;">${v}/100</div>
+  `;
+}
+
 function renderResultsView(results: Record<string, any>) {
   const resultsEl = document.getElementById("results") as HTMLDivElement | null;
-  if (!resultsEl) { debug("renderResultsView missing results element"); return; }
+  if (!resultsEl) return;
   const set = settings.personaSets[settings.activeSetId];
   resultsEl.innerHTML = set.personas.filter(p => p.enabled).map(p => {
     const r = results[p.id];
-    if (!r) return `<div class="row"><strong>${p.name}</strong><div class="muted">No result.</div></div>`;
+    if (!r) {
+      return `<div class="result-card"><strong>${p.name}</strong><div class="muted">No result.</div></div>`;
+    }
     const s = r.scores || {};
     const gf = (r.global_feedback || "").toString().replace(/\n/g, "<br/>");
     return `
-      <div class="section">
-        <strong>${p.name}</strong>
-        <div class="muted">Clarity: ${s.clarity ?? "—"} | Tone: ${s.tone ?? "—"} | Alignment: ${s.alignment ?? "—"}</div>
-        <div style="margin-top:6px;">${gf}</div>
+      <div class="result-card">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="dot" style="background:${p.color || "#e5e7eb"}"></span>
+          <strong>${p.name}</strong>
+        </div>
+        <div style="display:grid;grid-template-columns:110px 1fr;gap:8px; margin-top:6px;">
+          <div class="muted">Clarity</div><div>${scoreBarHTML(s.clarity)}</div>
+          <div class="muted">Tone</div><div>${scoreBarHTML(s.tone)}</div>
+          <div class="muted">Alignment</div><div>${scoreBarHTML(s.alignment)}</div>
+        </div>
+        <div style="margin-top:8px;">${gf}</div>
       </div>
     `;
   }).join("");
 }
 
-// ---------- JSON + LLM ----------
+/* =========================
+       JSON + LLM I/O
+========================= */
 function safeParseJSON(s: string) {
   try {
     if (!s || typeof s !== "string") return { _parse_error: "empty", _raw: s };
@@ -237,8 +298,8 @@ async function callLLM(persona: Persona, docText: string): Promise<any> {
     debug("using debug-stub", { persona: persona.id });
     return {
       scores: { clarity: 82, tone: 76, alignment: 88 },
-      global_feedback: `Stubbed feedback for ${persona.name}. Your pipeline is working.`,
-      comments: [{ quote: docText.slice(0, 30), comment: "Example inline comment from stub." }]
+      global_feedback: `Stub feedback for ${persona.name}.`,
+      comments: [{ quote: docText.slice(0, 60), comment: "Example inline comment from stub." }]
     };
   }
 
@@ -316,9 +377,13 @@ Rules:
   return safeParseJSON(txt);
 }
 
-// ---------- Word comments ----------
-async function insertComments(personaName: string, comments: { quote: string; comment: string }[]) {
+/* =========================
+       WORD COMMENTS
+========================= */
+async function insertComments(persona: Persona, comments: { quote: string; comment: string }[]) {
   if (!comments || !comments.length) return;
+  const hl = hexToHighlightColor(persona.color);
+
   await Word.run(async (context) => {
     const body = context.document.body;
     body.load("text");
@@ -327,49 +392,62 @@ async function insertComments(personaName: string, comments: { quote: string; co
     for (const c of comments) {
       if (!c.comment) continue;
 
+      // Try to anchor to the quoted text if provided
       if (c.quote && c.quote.trim().length > 0) {
         const search = body.search(c.quote, { matchCase: false, matchWholeWord: false });
         search.load("items");
         await context.sync();
+
         if (search.items.length > 0) {
-          (search.items[0] as any).insertComment(`${personaName}: ${c.comment}`);
+          const target = search.items[0];
+          try { target.font.highlightColor = hl; } catch {}
+          (target as any).insertComment(`${persona.name}: ${c.comment}`);
           await context.sync();
           continue;
         }
       }
+
+      // Fallback: append at end of document
       const tail = body.getRange("End");
-      (tail as any).insertComment(`${personaName}: ${c.comment}`);
+      (tail as any).insertComment(`${persona.name}: ${c.comment}`);
+      try { tail.font.highlightColor = hl; } catch {}
       await context.sync();
     }
   });
 }
 
-// ---------- Run flow ----------
+/* =========================
+          RUN FLOW
+========================= */
+async function getDocText(): Promise<string> {
+  let docText = "";
+  await Word.run(async (context) => {
+    const body = context.document.body;
+    body.load("text");
+    await context.sync();
+    docText = body.text || "";
+  });
+  return docText;
+}
+
 async function runReview() {
+  const runBtn = document.getElementById("runBtn") as HTMLButtonElement | null;
   try {
-    const runBtn = document.getElementById("runBtn") as HTMLButtonElement | null;
     if (runBtn) runBtn.disabled = true;
 
-    // doc text
     let docText = "";
     try {
-      await Word.run(async (context) => {
-        const body = context.document.body;
-        body.load("text");
-        await context.sync();
-        docText = body.text || "";
-      });
+      docText = await getDocText();
       debug("runReview: doc loaded", { length: docText.length });
     } catch (e: any) {
       debug("Word.run error", String(e));
       showToast("Could not read document text.");
-      if (runBtn) runBtn.disabled = false;
       return;
     }
 
     const set = settings.personaSets[settings.activeSetId];
     const personas = set.personas.filter(p => p.enabled);
-    if (!personas.length) { showToast("No personas enabled."); if (runBtn) runBtn.disabled = false; return; }
+    if (!personas.length) { showToast("No personas enabled."); return; }
 
     const status: Record<string, PersonaRunState> = {};
     personas.forEach(p => status[p.id] = "queued");
@@ -379,14 +457,11 @@ async function runReview() {
     for (const p of personas) {
       try {
         status[p.id] = "running"; renderStatuses(status);
-        debug("persona start", p.id);
         const json = await callLLM(p, docText);
         results[p.id] = json;
         debug("persona result", { id: p.id, parsed: json && !json._parse_error });
 
-        if (json?._parse_error) debug("parse error", { id: p.id, err: json._parse_error });
-        if (json?.comments?.length) { await insertComments(p.name, json.comments); debug("comments inserted", p.id); }
-
+        if (json?.comments?.length) { await insertComments(p, json.comments); }
         status[p.id] = json?._parse_error ? "failed" : "done";
         renderStatuses(status);
         renderResultsView(results);
@@ -398,17 +473,97 @@ async function runReview() {
     }
 
     renderResultsView(results);
+    lastRunResults = results; // for export
     showToast("Review complete.");
-    if (runBtn) runBtn.disabled = false;
-  } catch (e: any) {
-    debug("runReview fatal", String(e));
-    showToast("Run failed (see Debug).");
-    const runBtn = document.getElementById("runBtn") as HTMLButtonElement | null;
+  } finally {
     if (runBtn) runBtn.disabled = false;
   }
 }
 
-// ---------- Wiring ----------
+/* =========================
+          EXPORT
+========================= */
+let lastRunResults: Record<string, any> = {};
+
+function htmlEscape(s: string) {
+  return s.replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]!));
+}
+
+function buildReportHTML(results: Record<string, any>): string {
+  const set = settings.personaSets[settings.activeSetId];
+  const personas = set.personas.filter(p => p.enabled);
+
+  const sections = personas.map(p => {
+    const r = results[p.id];
+    const s = r?.scores || {};
+    const gf = htmlEscape((r?.global_feedback || "").toString());
+    const comments = (r?.comments || []) as Array<{quote:string;comment:string}>;
+    const commentHtml = comments.length
+      ? `<ul>${comments.map(c => `<li><em>${htmlEscape(c.quote || "")}</em><br/>${htmlEscape(c.comment || "")}</li>`).join("")}</ul>`
+      : `<div class="muted">No inline comments</div>`;
+
+    return `
+      <section class="card">
+        <h2><span class="dot" style="background:${p.color || "#e5e7eb"}"></span> ${htmlEscape(p.name)}</h2>
+        <div class="grid">
+          <div>Clarity</div><div><div class="bar"><div style="width:${Number(s.clarity||0)}%"></div></div><small>${Number(s.clarity||0)}/100</small></div>
+          <div>Tone</div><div><div class="bar"><div style="width:${Number(s.tone||0)}%"></div></div><small>${Number(s.tone||0)}/100</small></div>
+          <div>Alignment</div><div><div class="bar"><div style="width:${Number(s.alignment||0)}%"></div></div><small>${Number(s.alignment||0)}/100</small></div>
+        </div>
+        <h3>Global Feedback</h3>
+        <p>${gf.replace(/\n/g,"<br/>")}</p>
+        <h3>Inline Comments</h3>
+        ${commentHtml}
+      </section>`;
+  }).join("");
+
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>Persona Feedback Report</title>
+<style>
+  body{font-family:Segoe UI,Roboto,Arial,sans-serif;max-width:900px;margin:24px auto;padding:0 16px;color:#111827}
+  h1{font-size:22px;margin:0 0 12px}
+  h2{font-size:16px;margin:0 0 8px;display:flex;align-items:center;gap:8px}
+  h3{font-size:14px;margin:12px 0 6px}
+  .muted{color:#6b7280}
+  .legend{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 16px}
+  .swatch{display:inline-flex;align-items:center;gap:6px;padding:2px 6px;border:1px solid #e5e7eb;border-radius:999px;font-size:12px}
+  .dot{width:10px;height:10px;border-radius:50%;border:1px solid #d1d5db;display:inline-block}
+  .card{border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:12px}
+  .grid{display:grid;grid-template-columns:120px 1fr;gap:8px;margin:8px 0}
+  .bar{height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden}
+  .bar>div{height:100%;background:#2563eb}
+</style>
+</head>
+<body>
+  <h1>Persona Feedback Report</h1>
+  <div class="legend">
+    ${personas.map(p=>`<span class="swatch"><span class="dot" style="background:${p.color||"#e5e7eb"}"></span>${htmlEscape(p.name)}</span>`).join("")}
+  </div>
+  ${sections || `<div class="muted">No results yet.</div>`}
+</body>
+</html>`;
+}
+
+function exportReport() {
+  const html = buildReportHTML(lastRunResults);
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const stamp = new Date().toISOString().replace(/[:.]/g,"-");
+  a.download = `persona-feedback-${stamp}.html`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/* =========================
+          WIRING
+========================= */
 function wireEvents() {
   const gear = document.getElementById("gear");
   const back = document.getElementById("backToReview");
@@ -416,6 +571,7 @@ function wireEvents() {
   const runBtn = document.getElementById("runBtn");
   const toggleDebug = document.getElementById("toggleDebug");
   const clearDebug = document.getElementById("clearDebug");
+  const exportBtn = document.getElementById("exportBtn");
 
   if (gear) gear.addEventListener("click", () => { renderSettingsForm(); switchView("settings"); });
   if (back) back.addEventListener("click", () => { switchView("review"); });
@@ -435,6 +591,7 @@ function wireEvents() {
     const dbg = document.getElementById("debugLog"); if (dbg) dbg.innerHTML = "";
   });
   if (runBtn) runBtn.addEventListener("click", () => { runReview(); });
+  if (exportBtn) exportBtn.addEventListener("click", exportReport);
 
   // Settings
   const provider = document.getElementById("provider") as HTMLSelectElement | null;
@@ -463,11 +620,12 @@ function wireEvents() {
   });
 }
 
-// ---------- Boot (guarded) ----------
+/* =========================
+           BOOT
+========================= */
 (function boot() {
-  // If Office.js isn’t present (previewing in a normal browser), show a friendly message.
+  // Helpful dev warnings if opened outside Word
   if (typeof (window as any).Office === "undefined") {
-    debug("Office.js not available — are you opening taskpane.html directly in a browser?");
     const warn = document.createElement("div");
     warn.style.background = "#fff7ed";
     warn.style.color = "#9a3412";
@@ -475,46 +633,19 @@ function wireEvents() {
     warn.style.border = "1px solid #fed7aa";
     warn.style.borderRadius = "8px";
     warn.style.marginTop = "8px";
-    warn.textContent = "This page is intended to run inside Microsoft Word as an Office Add-in. Install the manifest and open from Word → Home → Persona Feedback.";
+    warn.textContent = "Open this add-in from Word (Home → Persona Feedback).";
     document.body.prepend(warn);
     return;
   }
 
   (window as any).Office.onReady()
     .then(() => {
-      try {
-        settings = loadSettings();
-
-        // DOM sanity check (helps diagnose mismatched HTML)
-        const requiredIds = [
-          "view-review","view-settings","gear","backToReview","personaSet","personaList","runBtn",
-          "results","personaStatus","progBar","toggleDebug","debugPanel","debugLog","clearDebug",
-          "provider","openrouterKeyRow","openrouterKey","model","settingsPersonaSet","personaEditor",
-          "saveSettings","restoreDefaults","toast","toastMsg","toastClose"
-        ];
-        const missing = requiredIds.filter(id => !document.getElementById(id));
-        if (missing.length) {
-          debug("Missing DOM ids:", missing);
-          const warn = document.createElement("div");
-          warn.style.background = "#fff7ed";
-          warn.style.color = "#9a3412";
-          warn.style.padding = "8px";
-          warn.style.border = "1px solid #fed7aa";
-          warn.style.borderRadius = "8px";
-          warn.style.marginTop = "8px";
-          warn.textContent = "UI mismatch detected. Please replace public/taskpane.html with the provided version and reload.";
-          document.body.prepend(warn);
-        }
-
-        wireEvents();
-        renderPersonaSetSelectors();
-        renderResultsView({});
-        switchView("review");
-        debug("Office.onReady → UI initialized");
-      } catch (e: any) {
-        debug("init error", String(e));
-        showToast("Init failed (see Debug).");
-      }
+      settings = loadSettings();
+      wireEvents();
+      renderPersonaSetSelectors();
+      renderResultsView({});
+      switchView("review");
+      debug("Office.onReady → UI initialized");
     })
     .catch((e: any) => {
       debug("Office.onReady failed", String(e));
