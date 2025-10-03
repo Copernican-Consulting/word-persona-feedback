@@ -3,52 +3,102 @@
 <head>
   <meta charset="utf-8" />
   <title>Persona Feedback</title>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: http:; img-src 'self' data: https: http:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval'">
-  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: Segoe UI, Roboto, Arial, sans-serif; margin: 12px; }
+    h1 { font-size: 16px; margin: 0 0 8px; }
+    .row { margin: 8px 0; }
+    select, input[type=text], input[type=password] { width: 100%; padding: 6px; }
+    button { padding: 6px 10px; margin-right: 6px; }
+    .link { color: #2563eb; cursor: pointer; }
+    .chip { display:inline-block; padding:2px 6px; border-radius:10px; font-size:12px; }
+    .queued { background:#eef2ff; color:#3730a3; }
+    .running { background:#fff7ed; color:#9a3412; }
+    .done { background:#ecfdf5; color:#065f46; }
+    .failed { background:#fef2f2; color:#991b1b; }
+    .muted { color:#6b7280; }
+    .section { border-top:1px solid #e5e7eb; margin-top:12px; padding-top:12px; }
+    .toast { position: fixed; top: 10px; right: 10px; background:#111827; color:#fff; padding:10px 12px; border-radius:8px; display:none; }
+    .toast .close { margin-left:8px; cursor:pointer; }
+    .hidden { display:none; }
+    .progress { height:6px; background:#e5e7eb; border-radius:4px; overflow:hidden; }
+    .bar { height:100%; width:0%; background:#2563eb; transition: width .2s ease; }
+    .debug { background:#f9fafb; border:1px solid #e5e7eb; padding:8px; border-radius:8px; max-height:180px; overflow:auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; }
+  </style>
 </head>
 <body>
-  <header class="pf-header">
-    <div class="pf-title">Persona Feedback</div>
-    <nav class="pf-tabs">
-      <button id="tabReview" class="pf-tab pf-tab--active" type="button">Review</button>
-      <button id="tabSettings" class="pf-tab" type="button">Settings</button>
-    </nav>
-    <button id="btnSettings" class="pf-gear" title="Settings">
-      <span class="pf-gear-icon">⚙️</span><span class="pf-gear-text">Settings</span>
-    </button>
-  </header>
-  <main id="view-review" class="pf-view active">
-    <section class="pf-card">
-      <div class="pf-field"><label for="reviewPersonaSetSelect">Personas</label><select id="reviewPersonaSetSelect"></select></div>
-      <div id="reviewPersonaList" class="pf-persona-list"></div>
-      <div class="pf-actions"><button id="btnRunReview" class="pf-primary">Run Review</button></div>
-    </section>
-    <section id="reviewOutput" class="pf-card">
-      <h3>Results</h3>
-      <div id="scoresContainer" class="pf-scores"></div>
-      <div id="globalFeedbackContainer" class="pf-global"></div>
-    </section>
-  </main>
-  <main id="view-settings" class="pf-view">
-    <section class="pf-card">
-      <h3>Model</h3>
-      <div class="pf-grid">
-        <div class="pf-field"><label for="providerSelect">Provider</label><select id="providerSelect"><option value="openrouter">OpenRouter</option><option value="ollama">Ollama (local)</option></select></div>
-        <div class="pf-field" id="openrouterKeyRow"><label for="openrouterKey">OpenRouter API Key</label><input type="password" id="openrouterKey" placeholder="sk-or-v1-..." /></div>
-        <div class="pf-field"><label for="modelInput">Model</label><input type="text" id="modelInput" placeholder="e.g. openrouter/auto or llama3.1:8b" /></div>
-      </div>
-    </section>
-    <section class="pf-card">
+  <h1>Persona Feedback <span id="gear" class="link">⚙ Settings</span></h1>
+
+  <!-- Review view -->
+  <div id="view-review">
+    <div class="row">
+      <label>Personas</label>
+      <select id="personaSet"></select>
+      <div id="personaList" class="muted" style="margin-top:6px;"></div>
+    </div>
+
+    <div class="row">
+      <button id="runBtn">Run Review</button>
+      <button id="toggleDebug" class="muted">Show Debug</button>
+    </div>
+
+    <div id="statusArea" class="section">
+      <div class="progress"><div id="progBar" class="bar"></div></div>
+      <div id="personaStatus" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="section">
+      <h3 style="margin:0 0 6px;">Results</h3>
+      <div id="results"></div>
+    </div>
+
+    <div id="debugPanel" class="section hidden">
+      <h3 style="margin:0 0 6px;">Debug</h3>
+      <div id="debugLog" class="debug"></div>
+      <button id="clearDebug" class="muted">Clear</button>
+    </div>
+  </div>
+
+  <!-- Settings view -->
+  <div id="view-settings" class="hidden">
+    <div class="row"><span class="link" id="backToReview">← Back</span></div>
+    <h3>Model</h3>
+    <div class="row">
+      <label>Provider</label>
+      <select id="provider">
+        <option value="openrouter">OpenRouter</option>
+        <option value="ollama">Ollama (local)</option>
+      </select>
+    </div>
+    <div class="row" id="openrouterKeyRow">
+      <label>OpenRouter API Key</label>
+      <input type="password" id="openrouterKey" placeholder="sk-or-v1-..." />
+    </div>
+    <div class="row">
+      <label>Model</label>
+      <input type="text" id="model" placeholder="e.g. openrouter/auto or llama3" />
+    </div>
+
+    <div class="section">
       <h3>Persona Settings</h3>
-      <div class="pf-field"><label for="settingsPersonaSetSelect">Persona Set</label><select id="settingsPersonaSetSelect"></select></div>
-      <div id="personaEditorContainer"></div>
-      <div class="pf-actions">
-        <button id="btnSaveSettings" class="pf-primary">Save Settings</button>
-        <button id="btnRestoreDefaults" class="pf-secondary">Restore Default Set</button>
-        <button id="btnBackToReview" class="pf-link">← Back to Review</button>
+      <div class="row">
+        <label>Persona Set</label>
+        <select id="settingsPersonaSet"></select>
       </div>
-    </section>
-  </main>
+      <div id="personaEditor"></div>
+      <div class="row">
+        <button id="saveSettings">Save Settings</button>
+        <button id="restoreDefaults">Restore Default Set</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast">
+    <span id="toastMsg">Saved.</span>
+    <span id="toastClose" class="close">✕</span>
+  </div>
+
   <script src="taskpane.bundle.js"></script>
 </body>
 </html>
