@@ -2,10 +2,11 @@
 
 /**
  * Persona Feedback – Word Add-in task pane
- * - Brings back inline score bars (no external CSS needed)
- * - NO highlighting or text edits; comments only
- * - Unmatched quotes are NOT inserted in the doc; shown in the results card
- * - "Clear PF comments" deletes only comments created this session (tracked by ID)
+ * - Better quote matching (normalize punctuation/whitespace + robust fallbacks)
+ * - NO text edits; comments only
+ * - Inline emoji color badge inside comment bubbles
+ * - Clear All Comments button works (uses Word comments collection when available)
+ * - Bar charts + debug panel
  */
 
 type Provider = "openrouter" | "ollama";
@@ -16,7 +17,7 @@ type Persona = {
   name: string;
   system: string;
   instruction: string;
-  color: string; // UI-only dot color (legend/taskpane). No document highlight.
+  color: string; // UI-only color (legend & emoji badge)
 };
 
 type PersonaSet = {
@@ -50,19 +51,21 @@ type PersonaRunResult = {
   error?: string;
 };
 
-// ---------- Globals ----------
+// ---------- Constants / Globals ----------
 const DOT_COLORS = [
   "#fde047", "#f9a8d4", "#5eead4", "#f87171", "#93c5fd",
   "#86efac", "#c4b5fd", "#f59e0b", "#db2777", "#0d9488",
   "#b91c1c", "#1d4ed8", "#166534", "#6d28d9",
 ];
 
+const PF_MARKER = "· PF"; // lets us recognize our comments if needed
 const LS_KEY = "pf.settings.v1";
+
 let SETTINGS: AppSettings;
 let LAST_RESULTS: PersonaRunResult[] = [];
-let SESSION_COMMENT_IDS: string[] = []; // track per-session comments we insert
+let SESSION_COMMENT_IDS: string[] = []; // ids for comments created in this session
 
-// ---------- Utils ----------
+// ---------- Utilities ----------
 function byId<T extends HTMLElement>(id: string): T | null {
   const el = document.getElementById(id) as T | null;
   if (!el) console.warn(`[PF] Missing element #${id}`);
@@ -90,7 +93,7 @@ function toast(t: string) {
   box.style.display = "block";
   const close = byId<HTMLSpanElement>("toastClose");
   if (close) close.onclick = () => (box.style.display = "none");
-  setTimeout(() => (box.style.display = "none"), 3000);
+  setTimeout(() => (box.style.display = "none"), 2500);
 }
 function showView(id: "view-review" | "view-settings") {
   const review = byId<HTMLDivElement>("view-review");
@@ -126,10 +129,27 @@ function confirmAsync(title: string, message: string): Promise<boolean> {
 function escapeHtml(s: string) {
   return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
-
-// ---------- Defaults ----------
 function colorAt(i: number): string { return DOT_COLORS[i % DOT_COLORS.length]; }
 
+// Emoji color badge for inside the bubble
+function colorBadgeFor(hex: string): string {
+  const h = (hex || "").toLowerCase();
+  const map: Array<[RegExp, string]> = [
+    [/(f59e0b|f97316|fb923c|fdba74)/, "🟧"],
+    [/(fde047|facc15|eab308|fff59d)/, "🟨"],
+    [/(86efac|34d399|10b981|22c55e|16a34a)/, "🟩"],
+    [/(93c5fd|60a5fa|3b82f6|2563eb|1d4ed8)/, "🟦"],
+    [/(c4b5fd|a78bfa|8b5cf6|6d28d9)/, "🟪"],
+    [/(f87171|ef4444|dc2626|b91c1c)/, "🟥"],
+  ];
+  for (const [rx, b] of map) if (rx.test(h)) return b;
+  return "⬛";
+}
+function personaPrefix(p: {name: string; color: string}) {
+  return `${colorBadgeFor(p.color)} [${p.name}] ${PF_MARKER}`;
+}
+
+// ---------- Defaults ----------
 const META_PROMPT = `
 You are a reviewer. Return ONLY valid JSON matching this schema:
 
@@ -245,7 +265,7 @@ function currentSet(): PersonaSet {
   return SETTINGS.personaSets.find((s) => s.id === id) || SETTINGS.personaSets[0];
 }
 
-// ---------- UI render ----------
+// ---------- UI wiring ----------
 function populatePersonaSets() {
   const sets = SETTINGS.personaSets;
 
@@ -328,12 +348,10 @@ function renderPersonaEditor() {
   });
 }
 function toHexColor(c: string): string {
-  // accept already-hex or fallback palette name strings; we just pass through or map basic names
   if (c.startsWith("#")) return c;
-  // crude map for defaults
   const map: Record<string,string> = {
     yellow:"#fde047", pink:"#f9a8d4", turquoise:"#5eead4", red:"#f87171", blue:"#93c5fd",
-    green:"#86efac", violet:"#c4b5fd",
+    green:"#86efac", violet:"#c4b5fd", orange:"#f59e0b", indigo:"#6366f1", emerald:"#10b981",
   };
   return map[c] || "#fde047";
 }
@@ -357,11 +375,8 @@ Office.onReady(async () => {
   populatePersonaSets();
   hydrateProviderUI();
 
-  const btnSettings = byId<HTMLButtonElement>("btnSettings");
-  if (btnSettings) btnSettings.onclick = () => showView("view-settings");
-
-  const btnBack = byId<HTMLButtonElement>("btnBack");
-  if (btnBack) btnBack.onclick = () => showView("view-review");
+  byId<HTMLButtonElement>("btnSettings")?.addEventListener("click", () => showView("view-settings"));
+  byId<HTMLButtonElement>("btnBack")?.addEventListener("click", () => showView("view-review"));
 
   const toggleDebug = byId<HTMLButtonElement>("toggleDebug");
   if (toggleDebug) toggleDebug.onclick = () => {
@@ -369,56 +384,43 @@ Office.onReady(async () => {
     panel.classList.toggle("hidden");
     toggleDebug.textContent = panel.classList.contains("hidden") ? "Show Debug" : "Hide Debug";
   };
+  byId<HTMLButtonElement>("clearDebug")?.addEventListener("click", () => { const p = byId<HTMLDivElement>("debugLog"); if (p) p.innerHTML = ""; });
 
-  const clearDebug = byId<HTMLButtonElement>("clearDebug");
-  if (clearDebug) clearDebug.onclick = () => { const p = byId<HTMLDivElement>("debugLog"); if (p) p.innerHTML = ""; };
-
-  const reviewSel = byId<HTMLSelectElement>("personaSet");
-  if (reviewSel) reviewSel.onchange = (ev) => {
+  byId<HTMLSelectElement>("personaSet")?.addEventListener("change", (ev) => {
     SETTINGS.personaSetId = (ev.target as HTMLSelectElement).value;
     saveSettings();
     populatePersonaSets();
-  };
+  });
 
-  const runBtn = byId<HTMLButtonElement>("runBtn");
-  if (runBtn) runBtn.onclick = handleRunReview;
+  byId<HTMLButtonElement>("runBtn")?.addEventListener("click", handleRunReview);
+  byId<HTMLButtonElement>("retryBtn")?.addEventListener("click", handleRetryFailed);
+  byId<HTMLButtonElement>("exportBtn")?.addEventListener("click", handleExportReport);
 
-  const retryBtn = byId<HTMLButtonElement>("retryBtn");
-  if (retryBtn) retryBtn.onclick = handleRetryFailed;
+  // CLEAR ALL COMMENTS
+  byId<HTMLButtonElement>("clearBtn")?.addEventListener("click", async () => {
+    const ok = await confirmAsync("Clear all comments", "Delete ALL comments in this document?");
+    if (!ok) return;
+    const n = await clearAllComments();
+    if (n >= 0) toast(n > 0 ? `Deleted ${n} comment(s).` : "No comments found.");
+  });
 
-  const exportBtn = byId<HTMLButtonElement>("exportBtn");
-  if (exportBtn) exportBtn.onclick = handleExportReport;
-
-  const clearBtn = byId<HTMLButtonElement>("clearBtn");
-  if (clearBtn) clearBtn.onclick = async () => {
-    if (!(await confirmAsync("Clear PF", "Remove Persona Feedback comments created in this session?"))) return;
-    const deleted = await clearSessionComments();
-    toast(deleted > 0 ? `Deleted ${deleted} comment(s).` : "No session comments to remove.");
-  };
-
-  const prov = byId<HTMLSelectElement>("provider");
-  if (prov) prov.onchange = (ev) => {
+  // Provider inputs
+  byId<HTMLSelectElement>("provider")?.addEventListener("change", (ev) => {
     SETTINGS.provider.provider = (ev.target as HTMLSelectElement).value as Provider;
     hydrateProviderUI(); saveSettings();
-  };
-
-  const key = byId<HTMLInputElement>("openrouterKey");
-  if (key) key.oninput = (ev) => {
+  });
+  byId<HTMLInputElement>("openrouterKey")?.addEventListener("input", (ev) => {
     SETTINGS.provider.openrouterKey = (ev.target as HTMLInputElement).value; saveSettings();
-  };
-
-  const model = byId<HTMLInputElement>("model");
-  if (model) model.oninput = (ev) => {
+  });
+  byId<HTMLInputElement>("model")?.addEventListener("input", (ev) => {
     SETTINGS.provider.model = (ev.target as HTMLInputElement).value; saveSettings();
-  };
+  });
 
-  const settingsSel = byId<HTMLSelectElement>("settingsPersonaSet");
-  if (settingsSel) settingsSel.onchange = (ev) => {
+  byId<HTMLSelectElement>("settingsPersonaSet")?.addEventListener("change", (ev) => {
     SETTINGS.personaSetId = (ev.target as HTMLSelectElement).value; saveSettings(); populatePersonaSets();
-  };
+  });
 
-  const saveSettingsBtn = byId<HTMLButtonElement>("saveSettings");
-  if (saveSettingsBtn) saveSettingsBtn.onclick = () => {
+  byId<HTMLButtonElement>("saveSettings")?.addEventListener("click", () => {
     const set = currentSet();
     set.personas.forEach((p, idx) => {
       const chk = byId<HTMLInputElement>(`pe-enabled-${idx}`);
@@ -433,10 +435,9 @@ Office.onReady(async () => {
     saveSettings();
     renderPersonaNamesAndLegend();
     toast("Settings saved");
-  };
+  });
 
-  const restoreDefaultsBtn = byId<HTMLButtonElement>("restoreDefaults");
-  if (restoreDefaultsBtn) restoreDefaultsBtn.onclick = () => {
+  byId<HTMLButtonElement>("restoreDefaults")?.addEventListener("click", () => {
     const curr = currentSet().id;
     const fresh = DEFAULT_SETS.find((s) => s.id === curr);
     if (fresh) {
@@ -446,7 +447,7 @@ Office.onReady(async () => {
       populatePersonaSets();
       toast("Default persona set restored");
     }
-  };
+  });
 
   showView("view-review");
 });
@@ -454,7 +455,7 @@ Office.onReady(async () => {
 // ---------- Actions ----------
 async function handleRunReview() {
   LAST_RESULTS = [];
-  SESSION_COMMENTIDS_SAFE_CLEAR(); // reset just in case
+  SESSION_COMMENT_IDS = []; // reset session tracking
   const res = byId<HTMLDivElement>("results"); if (res) res.innerHTML = "";
   const stat = byId<HTMLDivElement>("personaStatus"); if (stat) stat.innerHTML = "";
   await runAllEnabledPersonas(false);
@@ -475,25 +476,7 @@ async function runAllEnabledPersonas(retryOnly: boolean) {
   const personas = set.personas.filter((p) => p.enabled);
   if (!personas.length) { toast("No personas enabled in this set."); return; }
 
-  const statusHost = byId<HTMLDivElement>("personaStatus");
-  if (statusHost) {
-    statusHost.innerHTML = "";
-    personas.forEach((p) => {
-      const row = document.createElement("div");
-      row.id = `status-${p.id}`;
-      row.style.display = "flex";
-      row.style.justifyContent = "space-between";
-      row.style.marginBottom = "4px";
-      row.innerHTML = `
-        <span style="display:inline-flex;align-items:center;gap:6px;">
-          <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${p.color};"></span>
-          ${p.name}
-        </span>
-        <span id="badge-${p.id}" class="badge">queued</span>`;
-      statusHost.appendChild(row);
-    });
-  }
-
+  setBadgesHost(personas);
   const docText = await getWholeDocText();
   const total = personas.length; let done = 0;
   setProgress(0);
@@ -509,7 +492,7 @@ async function runAllEnabledPersonas(retryOnly: boolean) {
       const resp = await callLLMForPersona(p, docText);
       const normalized = normalizeResponse(resp);
       const { matched, unmatched } = await applyCommentsForMatchesOnly(p, normalized);
-      addResultCard(p, normalized, unmatched); // show unmatched only in pane
+      addResultCard(p, normalized, unmatched);
       upsertResult({
         personaId: p.id, personaName: p.name, status: "done",
         scores: normalized.scores, global_feedback: normalized.global_feedback,
@@ -540,8 +523,79 @@ async function getWholeDocText(): Promise<string> {
 }
 
 /**
- * Insert ONLY comments for quotes that can be found via body.search.
- * Returns matched comments (as inserted) and a list of unmatched {quote, comment}.
+ * Robust matching: normalize input; try full quote with ignoreSpace/ignorePunct; then fallbacks
+ */
+async function findRangeForQuote(ctx: any, quote: string): Promise<any | null> {
+  const body = ctx.document.body;
+
+  // Normalize smart quotes/dashes/whitespace and trim excessive length
+  let q = normalizeQuote(quote);
+  if (q.length > 240) q = middleSlice(q, 160); // very long quotes → use a representative middle slice
+
+  // 1) primary search: tolerant spacing & punctuation
+  let ranges = body.search(q, {
+    matchCase: false,
+    matchWholeWord: false,
+    matchWildcards: false,
+    ignoreSpace: true,
+    ignorePunct: true,
+  });
+  ranges.load("items");
+  await ctx.sync();
+  if (ranges.items.length > 0) return ranges.items[0];
+
+  // 2) fallback: drop leading/trailing quotes and re-try
+  const dequoted = q.replace(/^["'“”‘’]+/, "").replace(/["'“”‘’]+$/, "").trim();
+  if (dequoted && dequoted !== q) {
+    ranges = body.search(dequoted, {
+      matchCase: false, matchWholeWord: false, matchWildcards: false,
+      ignoreSpace: true, ignorePunct: true,
+    });
+    ranges.load("items"); await ctx.sync();
+    if (ranges.items.length > 0) return ranges.items[0];
+  }
+
+  // 3) fallback: search by 6-word seed (first or middle)
+  const seedA = seedFrom(q, "first", 6);
+  if (seedA) {
+    ranges = body.search(seedA, { matchCase: false, matchWholeWord: false, ignoreSpace: true, ignorePunct: true, matchWildcards: false });
+    ranges.load("items"); await ctx.sync();
+    if (ranges.items.length > 0) return ranges.items[0];
+  }
+  const seedB = seedFrom(q, "middle", 6);
+  if (seedB) {
+    ranges = body.search(seedB, { matchCase: false, matchWholeWord: false, ignoreSpace: true, ignorePunct: true, matchWildcards: false });
+    ranges.load("items"); await ctx.sync();
+    if (ranges.items.length > 0) return ranges.items[0];
+  }
+
+  return null;
+}
+function normalizeQuote(s: string): string {
+  return (s || "")
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'") // curly to straight single quote
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"') // curly to straight double quote
+    .replace(/[\u2013\u2014]/g, "-")            // en/em dash to hyphen
+    .replace(/\s+/g, " ")                       // collapse whitespace
+    .replace(/\u00A0/g, " ")                    // non-breaking space
+    .trim();
+}
+function middleSlice(s: string, max: number) {
+  if (s.length <= max) return s;
+  const start = Math.max(0, Math.floor((s.length - max) / 2));
+  return s.slice(start, start + max);
+}
+function seedFrom(s: string, which: "first" | "middle", words: number) {
+  const toks = s.split(/\s+/).filter(Boolean);
+  if (toks.length <= words) return s;
+  if (which === "first") return toks.slice(0, words).join(" ");
+  const mid = Math.floor(toks.length / 2);
+  const half = Math.floor(words / 2);
+  return toks.slice(Math.max(0, mid - half), mid - half + words).join(" ");
+}
+
+/**
+ * Insert ONLY comments for quotes that can be found.
  */
 async function applyCommentsForMatchesOnly(
   persona: Persona,
@@ -550,7 +604,7 @@ async function applyCommentsForMatchesOnly(
   matched: { quote: string; spanStart: number; spanEnd: number; comment: string }[];
   unmatched: { quote: string; comment: string }[];
 }> {
-  // Add a summary comment at the start (persona-level) WITHOUT modifying text/highlight
+  // Add persona-level summary comment at the start
   await addCommentAtStart(persona, `Summary (${persona.name}): ${data.global_feedback}`);
 
   const matched: { quote: string; spanStart: number; spanEnd: number; comment: string }[] = [];
@@ -569,83 +623,49 @@ async function applyCommentsForMatchesOnly(
       continue;
     }
 
-    const placed = await addCommentBySearchingQuote(persona, quote, note);
-    if (placed) {
-      matched.push({ quote, spanStart: Number(c.spanStart||0), spanEnd: Number(c.spanEnd||0), comment: note });
-    } else {
-      unmatched.push({ quote, comment: note });
-    }
+    const placed = await Word.run(async (ctx) => {
+      const r = await findRangeForQuote(ctx, quote);
+      if (!r) return false;
+      const comment = r.insertComment(`${personaPrefix(persona)} ${note}`);
+      comment.load("id"); await ctx.sync();
+      if (comment.id) SESSION_COMMENT_IDS.push(comment.id);
+      return true;
+    });
+
+    if (placed) matched.push({ quote, spanStart: Number(c.spanStart||0), spanEnd: Number(c.spanEnd||0), comment: note });
+    else unmatched.push({ quote, comment: note });
   }
 
   return { matched, unmatched };
 }
 
-/**
- * Searches for the quoted text and attaches a comment on the first matching range.
- * Returns true if a match was found and a comment inserted.
- */
-async function addCommentBySearchingQuote(persona: Persona, quote: string, text: string): Promise<boolean> {
-  return Word.run(async (ctx) => {
-    const body = ctx.document.body;
-    const ranges = body.search(quote, {
-      matchCase: false, matchWholeWord: false, matchWildcards: false, ignoreSpace: false, ignorePunct: false,
-    });
-    ranges.load("items"); await ctx.sync();
-
-    const count = ranges.items.length;
-    log(`[PF] search "${quote.slice(0, 60)}${quote.length>60?"…":""}" → ${count} match(es)`);
-
-    if (count === 0) return false;
-
-    const r = ranges.items[0];
-    const comment = r.insertComment(`[${persona.name}] ${text}`);
-    // Track comment ID (for same-session clear)
-    comment.load("id"); await ctx.sync();
-    if (comment.id) SESSION_COMMENT_IDS.push(comment.id);
-    return true;
-  });
-}
-
 async function addCommentAtStart(persona: Persona, text: string) {
   return Word.run(async (ctx) => {
     const start = ctx.document.body.getRange("Start");
-    const comment = start.insertComment(`[${persona.name}] ${text}`);
+    const comment = start.insertComment(`${personaPrefix(persona)} ${text}`);
     comment.load("id"); await ctx.sync();
     if (comment.id) SESSION_COMMENT_IDS.push(comment.id);
   });
 }
 
-async function clearSessionComments(): Promise<number> {
-  if (!SESSION_COMMENT_IDS.length) return 0;
+// Delete ALL comments in document (preferred), or show guidance if not supported
+async function clearAllComments(): Promise<number> {
   return Word.run(async (ctx) => {
-    let deleted = 0;
-    // Try document.comments (if supported); if not, we still try direct objects by id
     const docAny: any = ctx.document as any;
-    const commentsColl = docAny.comments;
-    if (commentsColl) commentsColl.load("items"); // may be undefined on older sets; that's ok
-    await ctx.sync().catch(() => { /* swallow */ });
-
-    if (commentsColl && commentsColl.items) {
-      for (const c of commentsColl.items) {
-        c.load("id"); // get ID to compare
-      }
-      await ctx.sync().catch(() => { /* ignore */ });
-      for (const c of commentsColl.items) {
-        if (SESSION_COMMENT_IDS.includes(c.id)) { c.delete(); deleted++; }
-      }
-      await ctx.sync().catch(() => { /* ignore */ });
-    } else {
-      // Fallback: best-effort – we cannot enumerate comments; session IDs can’t be fetched back.
-      // Nothing we can do except inform the user.
-      log("[PF] clearSessionComments: document.comments not available on this build; limited cleanup.");
+    const coll = docAny.comments;
+    if (!coll || typeof coll.load !== "function") {
+      toast("This Word build doesn’t expose comment enumeration. Use Review → Delete → Delete All Comments.");
+      return -1;
     }
-    // reset session list regardless to avoid double-delete attempts
+    coll.load("items");
+    await ctx.sync();
+    let n = 0;
+    for (const c of coll.items) { c.delete(); n++; }
+    await ctx.sync();
+    // reset our session list too
     SESSION_COMMENT_IDS = [];
-    return deleted;
+    return n;
   });
-}
-function SESSION_COMMENTIDS_SAFE_CLEAR() {
-  SESSION_COMMENT_IDS = [];
 }
 
 // ---------- Networking ----------
@@ -797,7 +817,7 @@ function addResultCard(
       <div style="margin-top:8px;">
         <div style="font-weight:600;margin-bottom:4px;">Unmatched quotes (not inserted):</div>
         <ul style="margin:0 0 0 16px;padding:0;list-style:disc;">
-          ${unmatched.slice(0,6).map(u => `<li><span style="color:#6b7280">"${escapeHtml(u.quote.slice(0,120))}${u.quote.length>120?"…":""}"</span><br/><span>${escapeHtml(u.comment)}</span></li>`).join("")}
+          ${unmatched.slice(0,6).map(u => `<li><span style="color:#6b7280">"${escapeHtml(u.quote.slice(0,160))}${u.quote.length>160?"…":""}"</span><br/><span>${escapeHtml(u.comment)}</span></li>`).join("")}
         </ul>
       </div>` : ``}
   `;
@@ -811,7 +831,7 @@ async function handleExportReport() {
   a.href = url; a.download = `persona-feedback-${Date.now()}.json`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
-// ---------- Progress / badges host ----------
+// ---------- Status host ----------
 function setBadgesHost(personas: Persona[]) {
   const statusHost = byId<HTMLDivElement>("personaStatus");
   if (!statusHost) return;
