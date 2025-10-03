@@ -5,8 +5,8 @@
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
 
-  <!-- New real GUID -->
-  <Id>7f6f6f1a-2e85-4a6c-9b5c-3f1d2d7b0c3a</Id>
+  <!-- Keep the same GUID that validated everything else -->
+  <Id>1d9b7c6e-6e5f-4f0a-9e5d-8d6b9c2fa7d1</Id>
 
   <Version>1.0.0.0</Version>
   <ProviderName>Persona Feedback</ProviderName>
@@ -18,7 +18,6 @@
   <HighResolutionIconUrl DefaultValue="https://word-persona-feedback.vercel.app/assets/icon-80.png"/>
   <SupportUrl DefaultValue="https://word-persona-feedback.vercel.app/support"/>
 
-  <!-- Only public HTTPS domains -->
   <AppDomains>
     <AppDomain>https://word-persona-feedback.vercel.app</AppDomain>
     <AppDomain>https://openrouter.ai</AppDomain>
@@ -29,10 +28,10 @@
   </Hosts>
 
   <Requirements>
-  <Sets>
-    <Set Name="WordApi" MinVersion="1.1"/>
-  </Sets>
-</Requirements>
+    <Sets>
+      <Set Name="WordApi" MinVersion="1.1"/>
+    </Sets>
+  </Requirements>
 
   <DefaultSettings>
     <SourceLocation DefaultValue="https://word-persona-feedback.vercel.app/taskpane.html"/>
@@ -40,56 +39,61 @@
 
   <Permissions>ReadWriteDocument</Permissions>
 
-  <VersionOverrides xsi:type="ov:VersionOverridesV1_0">
-    <Hosts>
-      <Host xsi:type="ov:Document">
-        <DesktopFormFactor>
-          <ExtensionPoint xsi:type="ov:PrimaryCommandSurface">
-            <OfficeTab id="TabHome">
-              <Group id="PersonaFeedback.Group">
-                <Label resid="customTabLabel"/>
-                <Control xsi:type="ov:Button" id="PersonaFeedback.OpenPane" enabled="true">
-                  <Label resid="paneButtonLabel"/>
-                  <Supertip>
-                    <Title resid="paneButtonTitle"/>
-                    <Description resid="paneButtonDesc"/>
-                  </Supertip>
-                  <Icon>
+  <ov:VersionOverrides xsi:type="ov:VersionOverridesV1_0">
+    <ov:Hosts>
+      <ov:Host xsi:type="ov:Document">
+        <ov:DesktopFormFactor>
+          <ov:ExtensionPoint xsi:type="ov:PrimaryCommandSurface">
+            <ov:OfficeTab id="TabHome">
+              <ov:Group id="PersonaFeedback.Group">
+                <ov:Label resid="customTabLabel"/>
+                <!-- REQUIRED group-level icon before first control -->
+                <ov:Icon>
+                  <bt:Image size="16" resid="icon16"/>
+                  <bt:Image size="32" resid="icon32"/>
+                  <bt:Image size="80" resid="icon80"/>
+                </ov:Icon>
+
+                <ov:Control xsi:type="ov:Button" id="PersonaFeedback.OpenPane" enabled="true">
+                  <ov:Label resid="paneButtonLabel"/>
+                  <ov:Supertip>
+                    <ov:Title resid="paneButtonTitle"/>
+                    <ov:Description resid="paneButtonDesc"/>
+                  </ov:Supertip>
+                  <!-- Control-level icon (kept) -->
+                  <ov:Icon>
                     <bt:Image size="16" resid="icon16"/>
                     <bt:Image size="32" resid="icon32"/>
                     <bt:Image size="80" resid="icon80"/>
-                  </Icon>
-                  <Action xsi:type="ov:ShowTaskpane">
-                    <SourceLocation resid="TaskPane.Url"/>
-                  </Action>
-                </Control>
-              </Group>
-            </OfficeTab>
-          </ExtensionPoint>
-        </DesktopFormFactor>
-      </Host>
-    </Hosts>
+                  </ov:Icon>
+                  <ov:Action xsi:type="ov:ShowTaskpane">
+                    <ov:SourceLocation resid="TaskPane.Url"/>
+                  </ov:Action>
+                </ov:Control>
+              </ov:Group>
+            </ov:OfficeTab>
+          </ov:ExtensionPoint>
+        </ov:DesktopFormFactor>
+      </ov:Host>
+    </ov:Hosts>
 
-    <Resources>
+    <ov:Resources>
       <bt:Images>
         <bt:Image id="icon16" DefaultValue="https://word-persona-feedback.vercel.app/assets/icon-32.png"/>
         <bt:Image id="icon32" DefaultValue="https://word-persona-feedback.vercel.app/assets/icon-32.png"/>
         <bt:Image id="icon80" DefaultValue="https://word-persona-feedback.vercel.app/assets/icon-80.png"/>
       </bt:Images>
-
       <bt:Urls>
         <bt:Url id="TaskPane.Url" DefaultValue="https://word-persona-feedback.vercel.app/taskpane.html"/>
       </bt:Urls>
-
       <bt:ShortStrings>
         <bt:String id="customTabLabel" DefaultValue="Persona Feedback"/>
         <bt:String id="paneButtonLabel" DefaultValue="Open Personas"/>
         <bt:String id="paneButtonTitle" DefaultValue="Open persona feedback task pane"/>
       </bt:ShortStrings>
-
       <bt:LongStrings>
         <bt:String id="paneButtonDesc" DefaultValue="Run multi-persona reviews with inline comments &amp; scores."/>
       </bt:LongStrings>
-    </Resources>
-  </VersionOverrides>
+    </ov:Resources>
+  </ov:VersionOverrides>
 </OfficeApp>
