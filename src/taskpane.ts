@@ -1,6 +1,7 @@
 /* global Office, Word */
 import { DEFAULT_SETS, PersonaSet, Persona } from "./personas";
 
+// ---------- Types ----------
 type Settings = {
   provider: "openrouter" | "ollama";
   openrouterKey?: string;
@@ -12,7 +13,7 @@ type Settings = {
 type PersonaRunState = "queued" | "running" | "done" | "failed";
 const STORAGE_KEY = "pf_settings_v2";
 
-// ---------- utils ----------
+// ---------- Utils ----------
 const clone = <T,>(o: T): T => {
   try { /* @ts-ignore */ if (typeof structuredClone === "function") return structuredClone(o); } catch {}
   return JSON.parse(JSON.stringify(o));
@@ -37,7 +38,7 @@ function showToast(msg: string) {
   const toastClose = document.getElementById("toastClose") as HTMLSpanElement | null;
   if (!toast || !toastMsg || !toastClose) {
     debug("toast missing", msg);
-    alert(msg); // last resort
+    alert(msg); // fallback
     return;
   }
   toastMsg.textContent = msg;
@@ -45,14 +46,15 @@ function showToast(msg: string) {
   const hide = () => { toast.style.display = "none"; toastClose.removeEventListener("click", hide); };
   toastClose.addEventListener("click", hide);
   setTimeout(hide, 3000);
+
   if (/error|failed|missing|could not/i.test(msg)) {
     const dp = document.getElementById("debugPanel");
     const td = document.getElementById("toggleDebug");
-    if (dp && td) { dp.classList.remove("hidden"); td.textContent = "Hide Debug"; }
+    if (dp && td) { dp.classList.remove("hidden"); (td as HTMLButtonElement).textContent = "Hide Debug"; }
   }
 }
 
-// global error mirroring
+// Mirror unexpected errors into debug
 (function attachGlobalErrorHooks() {
   (window as any).addEventListener("error", (e: ErrorEvent) => {
     const msg = `window.error: ${e.message} @ ${e.filename}:${e.lineno}:${e.colno}`;
@@ -66,10 +68,10 @@ function showToast(msg: string) {
   });
 })();
 
-// ---------- state ----------
+// ---------- State ----------
 let settings: Settings;
 
-// ---------- persistence ----------
+// ---------- Persistence ----------
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -87,7 +89,7 @@ function loadSettings(): Settings {
 }
 function saveSettings() { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); }
 
-// ---------- render helpers ----------
+// ---------- Render ----------
 function switchView(view: "review" | "settings") {
   const review = document.getElementById("view-review");
   const settingsView = document.getElementById("view-settings");
@@ -163,7 +165,7 @@ function renderPersonaEditor() {
     </div>
   `).join("");
 
-  // wire inputs
+  // Wire inputs
   personaEditor.querySelectorAll<HTMLInputElement>(".pe-enabled").forEach(inp => {
     inp.onchange = () => {
       const p = set.personas.find(x => x.id === inp.dataset.id)!;
@@ -342,7 +344,7 @@ async function insertComments(personaName: string, comments: { quote: string; co
   });
 }
 
-// ---------- run flow ----------
+// ---------- Run flow ----------
 async function runReview() {
   try {
     const runBtn = document.getElementById("runBtn") as HTMLButtonElement | null;
@@ -406,7 +408,7 @@ async function runReview() {
   }
 }
 
-// ---------- wiring ----------
+// ---------- Wiring ----------
 function wireEvents() {
   const gear = document.getElementById("gear");
   const back = document.getElementById("backToReview");
@@ -434,7 +436,7 @@ function wireEvents() {
   });
   if (runBtn) runBtn.addEventListener("click", () => { runReview(); });
 
-  // settings controls
+  // Settings
   const provider = document.getElementById("provider") as HTMLSelectElement | null;
   const openrouterKeyRow = document.getElementById("openrouterKeyRow");
   const openrouterKey = document.getElementById("openrouterKey") as HTMLInputElement | null;
@@ -461,45 +463,61 @@ function wireEvents() {
   });
 }
 
-// ---------- boot ----------
-Office.onReady()
-  .then(() => {
-    try {
-      settings = loadSettings();
+// ---------- Boot (guarded) ----------
+(function boot() {
+  // If Office.js isn’t present (previewing in a normal browser), show a friendly message.
+  if (typeof (window as any).Office === "undefined") {
+    debug("Office.js not available — are you opening taskpane.html directly in a browser?");
+    const warn = document.createElement("div");
+    warn.style.background = "#fff7ed";
+    warn.style.color = "#9a3412";
+    warn.style.padding = "8px";
+    warn.style.border = "1px solid #fed7aa";
+    warn.style.borderRadius = "8px";
+    warn.style.marginTop = "8px";
+    warn.textContent = "This page is intended to run inside Microsoft Word as an Office Add-in. Install the manifest and open from Word → Home → Persona Feedback.";
+    document.body.prepend(warn);
+    return;
+  }
 
-      // DOM sanity check
-      const requiredIds = [
-        "view-review","view-settings","gear","backToReview","personaSet","personaList","runBtn",
-        "results","personaStatus","progBar","toggleDebug","debugPanel","debugLog","clearDebug",
-        "provider","openrouterKeyRow","openrouterKey","model","settingsPersonaSet","personaEditor",
-        "saveSettings","restoreDefaults","toast","toastMsg","toastClose"
-      ];
-      const missing = requiredIds.filter(id => !document.getElementById(id));
-      if (missing.length) {
-        debug("Missing DOM ids:", missing);
-        const body = document.body;
-        const warn = document.createElement("div");
-        warn.style.background = "#fff7ed";
-        warn.style.color = "#9a3412";
-        warn.style.padding = "8px";
-        warn.style.border = "1px solid #fed7aa";
-        warn.style.borderRadius = "8px";
-        warn.style.marginTop = "8px";
-        warn.textContent = "UI mismatch detected. Please replace public/taskpane.html with the provided version and reload.";
-        body.prepend(warn);
+  (window as any).Office.onReady()
+    .then(() => {
+      try {
+        settings = loadSettings();
+
+        // DOM sanity check (helps diagnose mismatched HTML)
+        const requiredIds = [
+          "view-review","view-settings","gear","backToReview","personaSet","personaList","runBtn",
+          "results","personaStatus","progBar","toggleDebug","debugPanel","debugLog","clearDebug",
+          "provider","openrouterKeyRow","openrouterKey","model","settingsPersonaSet","personaEditor",
+          "saveSettings","restoreDefaults","toast","toastMsg","toastClose"
+        ];
+        const missing = requiredIds.filter(id => !document.getElementById(id));
+        if (missing.length) {
+          debug("Missing DOM ids:", missing);
+          const warn = document.createElement("div");
+          warn.style.background = "#fff7ed";
+          warn.style.color = "#9a3412";
+          warn.style.padding = "8px";
+          warn.style.border = "1px solid #fed7aa";
+          warn.style.borderRadius = "8px";
+          warn.style.marginTop = "8px";
+          warn.textContent = "UI mismatch detected. Please replace public/taskpane.html with the provided version and reload.";
+          document.body.prepend(warn);
+        }
+
+        wireEvents();
+        renderPersonaSetSelectors();
+        renderResultsView({});
+        switchView("review");
+        debug("Office.onReady → UI initialized");
+      } catch (e: any) {
+        debug("init error", String(e));
+        showToast("Init failed (see Debug).");
       }
-
-      wireEvents();
-      renderPersonaSetSelectors();
-      renderResultsView({});
-      switchView("review");
-      debug("Office.onReady → UI initialized");
-    } catch (e: any) {
-      debug("init error", String(e));
-      showToast("Init failed (see Debug).");
-    }
-  })
-  .catch((e) => {
-    debug("Office.onReady failed", String(e));
-    showToast("Office not ready (see Debug).");
-  });
+    })
+    .catch((e: any) => {
+      debug("Office.onReady failed", String(e));
+      showToast("Office not ready (see Debug).");
+    });
+})();

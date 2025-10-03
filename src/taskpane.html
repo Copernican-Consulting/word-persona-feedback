@@ -6,6 +6,7 @@
   <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    :root { color-scheme: light; }
     body { font-family: Segoe UI, Roboto, Arial, sans-serif; margin: 12px; }
     h1 { font-size: 16px; margin: 0 0 8px; display:flex; align-items:center; justify-content:space-between; }
     .row { margin: 8px 0; }
@@ -103,6 +104,10 @@
     <span id="toastClose" class="close">✕</span>
   </div>
 
+  <!-- Office.js must load before your bundle -->
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+
+  <!-- Your bundle -->
   <script src="taskpane.bundle.js"></script>
 </body>
 </html>
