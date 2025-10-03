@@ -253,20 +253,32 @@ async function insertComments(personaName: string, comments: { quote: string; co
     await context.sync();
 
     for (const c of comments) {
-      if (!c.quote || !c.comment) continue;
-      const range = body.search(c.quote, { matchCase: false, matchWholeWord: false });
-      range.load("items");
-      await context.sync();
-      if (range.items.length > 0) {
-        range.items[0].insertComment(`${personaName}: ${c.comment}`);
-      } else {
-        // fallback: add a doc-level comment
-        body.insertComment(`${personaName}: ${c.comment}`);
+      if (!c.comment) continue;
+
+      // If we have a quote, try to find it first.
+      if (c.quote && c.quote.trim().length > 0) {
+        const search = body.search(c.quote, { matchCase: false, matchWholeWord: false });
+        search.load("items");
+        await context.sync();
+
+        if (search.items.length > 0) {
+          // Insert the comment directly on the matched range.
+          const targetRange = search.items[0];
+          // Range has insertComment; for older typings, cast to any to avoid TS complaints.
+          (targetRange as any).insertComment(`${personaName}: ${c.comment}`);
+          await context.sync();
+          continue;
+        }
       }
+
+      // Fallback: attach a comment at the end of the document
+      const tail = body.getRange("End"); // Range
+      (tail as any).insertComment(`${personaName}: ${c.comment}`);
       await context.sync();
     }
   });
 }
+
 
 // Run flow
 async function runReview() {
