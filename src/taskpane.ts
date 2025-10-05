@@ -1,1596 +1,813 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-/* global Office, Word */
-//
-// Persona Feedback – Taskpane (TypeScript, all personas inlined)
-// - Inlines DEFAULT_SETS (no external personas.ts)
-// - Keeps proven behavior: matching-only comments, progress/debug, PDF export, settings, color legend
-// - Avoids problematic APIs (no Word.HighlightColor, no Range.getSubstring)
-//
 
-/* ----------------------------- Utilities ----------------------------- */
+import "./ui.css";
 
-type ProviderConfig = {
-  provider: "openrouter" | "ollama";
-  model: string;
-  openrouterKey?: string;
-};
+// ===== Types =====
+type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
 type Persona = {
   id: string;
-  enabled: boolean;
   name: string;
+  color?: string;
   system: string;
   instruction: string;
-  color: string; // hex
+  enabled?: boolean;
 };
 
-type PersonaSet = {
-  id: string;
-  name: string;
-  personas: Persona[];
-};
+type PersonaSet = { id: string; name: string; personas: Persona[]; version?: number };
 
-type NormalizedLLM = {
-  scores: { clarity: number; tone: number; alignment: number };
+type FeedbackJSON = {
+  scores: Record<string, number>;
   global_feedback: string;
-  comments: Array<{ quote: string; spanStart?: number; spanEnd?: number; comment: string }>;
+  comments: Array<{ quote: string; comment: string; category?: string }>;
 };
 
-type RunResult = {
-  personaId: string;
-  personaName: string;
-  status: "done" | "error";
-  scores?: NormalizedLLM["scores"];
-  global_feedback?: string;
-  comments?: NormalizedLLM["comments"];
-  unmatched?: Array<{ quote: string; comment: string }>;
-  raw?: any;
-  error?: string;
+type ProviderConfig =
+  | { kind: "openrouter"; apiKey: string; model: string }
+  | { kind: "ollama"; host?: string; model: string };
+
+type AppSettings = {
+  provider?: ProviderConfig;
+  selectedSetId?: string;
+  personaEnabled?: Record<string, boolean>;
 };
 
-const LS_KEY = "pf.settings.v1";
-
-let SETTINGS: {
-  provider: ProviderConfig;
-  personaSetId: string;
-  personaSets: PersonaSet[];
-};
-
-let LAST_RESULTS: RunResult[] = [];
-let RUN_LOCK = false;
-
-/* ----------------------------- DOM helpers ----------------------------- */
-
-function byId<T extends HTMLElement = HTMLElement>(id: string) {
-  return document.getElementById(id) as T | null;
-}
-
-function req<T extends HTMLElement = HTMLElement>(id: string) {
-  const el = byId<T>(id);
-  if (!el) throw new Error(`#${id} not found`);
-  return el;
-}
-
-function toast(msg: string) {
-  const t = byId("toast");
-  const m = byId("toastMsg");
-  if (!t || !m) return;
-  m.textContent = msg;
-  t.style.display = "block";
-  setTimeout(() => (t.style.display = "none"), 1800);
-}
-
-function log(label: string, data?: any) {
-  const pane = byId("debugLog");
-  if (data !== undefined) console.log(label, data);
-  else console.log(label);
-  if (!pane) return;
-  const div = document.createElement("div");
-  div.style.whiteSpace = "pre-wrap";
-  div.textContent = data !== undefined ? `${label} ${safeJson(data)}` : label;
-  pane.appendChild(div);
-  pane.scrollTop = pane.scrollHeight;
-}
-
-function safeJson(x: any) {
-  try {
-    return JSON.stringify(x, null, 2);
-  } catch {
-    return String(x);
-  }
-}
-
-function escapeHtml(s: string) {
-  return (s || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function showView(id: "view-review" | "view-settings") {
-  const r = byId("view-review");
-  const s = byId("view-settings");
-  const back = byId("btnBack") as HTMLButtonElement | null;
-  if (id === "view-review") {
-    r?.classList.remove("hidden");
-    s?.classList.add("hidden");
-    if (back) back.style.display = "none";
-  } else {
-    r?.classList.add("hidden");
-    s?.classList.remove("hidden");
-    if (back) back.style.display = "";
-  }
-}
-
-function confirmAsync(title: string, message: string): Promise<boolean> {
-  return new Promise((res) => {
-    const overlay = req("confirmOverlay");
-    req<HTMLDivElement>("confirmTitle").textContent = title;
-    req<HTMLDivElement>("confirmMessage").textContent = message;
-    overlay.style.display = "flex";
-    const ok = req<HTMLButtonElement>("confirmOk");
-    const cc = req<HTMLButtonElement>("confirmCancel");
-    const done = (v: boolean) => {
-      overlay.style.display = "none";
-      ok.onclick = null;
-      cc.onclick = null;
-      res(v);
-    };
-    ok.onclick = () => done(true);
-    cc.onclick = () => done(false);
-  });
-}
-
-/* ----------------------------- Colors, Emojis ----------------------------- */
-
-function hexToRgb(hex: string) {
-  const m = hex.trim().replace("#", "");
-  if (m.length !== 6) return { r: 200, g: 200, b: 200 };
-  return {
-    r: parseInt(m.slice(0, 2), 16),
-    g: parseInt(m.slice(2, 4), 16),
-    b: parseInt(m.slice(4, 6), 16),
-  };
-}
-function rgbToHue({ r, g, b }: { r: number; g: number; b: number }) {
-  r /= 255;
-  g /= 255;
-  b /= 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const d = max - min;
-  let h = 0;
-  if (d === 0) h = 0;
-  else if (max === r) h = ((g - b) / d) % 6;
-  else if (max === g) h = (b - r) / d + 2;
-  else h = (r - g) / d + 4;
-  h = Math.round(h * 60);
-  if (h < 0) h += 360;
-  return h;
-}
-function hueToEmoji(h: number) {
-  const pals = [
-    { h: 0, e: "🟥" },
-    { h: 30, e: "🟧" },
-    { h: 60, e: "🟨" },
-    { h: 120, e: "🟩" },
-    { h: 210, e: "🟦" },
-    { h: 280, e: "🟪" },
-  ];
-  let best = pals[0];
-  let diff = 999;
-  for (const p of pals) {
-    const d = Math.min(Math.abs(h - p.h), 360 - Math.abs(h - p.h));
-    if (d < diff) {
-      diff = d;
-      best = p;
-    }
-  }
-  return best.e;
-}
-function colorEmojiFromHex(hex: string) {
-  return hueToEmoji(rgbToHue(hexToRgb(hex || "#cccccc")));
-}
-function personaPrefix(p: Persona) {
-  return `${colorEmojiFromHex(p.color)} [${p.name}]`;
-}
-
-/* ----------------------------- Personas (inlined) ----------------------------- */
-
-function P(name: string, system: string, instruction: string, color: string): Persona {
-  return {
-    id: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-    enabled: true,
-    name,
-    system,
-    instruction,
-    color,
-  };
-}
-
-/** ALL persona sets merged here. */
+// ===== Persona catalog (merged) =====
 const DEFAULT_SETS: PersonaSet[] = [
-  // 1) Cross-Functional Team (original baseline)
-  {
-    id: "cross-functional-team",
-    name: "Cross-Functional Team",
-    personas: [
-      P(
-        "Senior Manager",
-        "Senior manager prioritizing clarity, risk, outcomes.",
-        "Assess clarity of goals, risks, outcomes; give concise suggestions.",
-        "#fde047"
-      ),
-      P(
-        "Legal",
-        "Corporate counsel focused on compliance.",
-        "Flag risky or ambiguous claims; suggest safer wording.",
-        "#f9a8d4"
-      ),
-      P(
-        "HR",
-        "HR partner focused on inclusivity.",
-        "Spot exclusionary tone; suggest inclusive language.",
-        "#5eead4"
-      ),
-      P(
-        "Technical Lead",
-        "Engineering lead, pragmatic.",
-        "Check feasibility, gaps, and technical risks.",
-        "#93c5fd"
-      ),
-      P(
-        "Junior Analyst",
-        "Detail-oriented analyst.",
-        "Call out unclear logic and missing data.",
-        "#86efac"
-      ),
-    ],
-  },
-
-  // 2) Marketing Focus Group
-  {
-    id: "marketing-focus-group",
-    name: "Marketing Focus Group",
-    personas: [
-      P(
-        "Midwest Parent",
-        "Pragmatic parent balancing budget and trust.",
-        "React to clarity, trust, and family benefit; point out confusing or unconvincing claims.",
-        "#f59e0b"
-      ),
-      P(
-        "Gen-Z Student",
-        "Digital native sensitive to authenticity.",
-        "Flag cringe/marketing-speak; suggest authentic tone and concrete examples.",
-        "#0ea5e9"
-      ),
-      P(
-        "Retired Veteran",
-        "Values respect, responsibility, and clarity.",
-        "Request plain language; flag jargon; emphasize credibility.",
-        "#6d28d9"
-      ),
-      P(
-        "Small Business Owner",
-        "ROI-driven decision maker.",
-        "Ask for value proposition and costs; flag fluff.",
-        "#16a34a"
-      ),
-      P(
-        "Tech Pro",
-        "Detail- and precision-oriented.",
-        "Penalize vague claims; request specifications or metrics.",
-        "#ef4444"
-      ),
-    ],
-  },
-
-  // 3) Startup Stakeholders
-  {
-    id: "startup-stakeholders",
-    name: "Startup Stakeholders",
-    personas: [
-      P(
-        "Founder",
-        "Vision-first, resource constrained.",
-        "Evaluate narrative coherence and focus; call out distractions.",
-        "#22c55e"
-      ),
-      P(
-        "CTO",
-        "Architecture and feasibility oriented.",
-        "Challenge technical assumptions and scalability; propose mitigations.",
-        "#38bdf8"
-      ),
-      P(
-        "CMO",
-        "Go-to-market and positioning focused.",
-        "Highlight clarity of ICP, messaging, and conversion path.",
-        "#f97316"
-      ),
-      P(
-        "VC Investor",
-        "Skeptical; risk-reward framing.",
-        "Probe moat, traction, unit economics; remove hand-wavy claims.",
-        "#a855f7"
-      ),
-      P(
-        "Customer",
-        "Pragmatic buyer.",
-        "Call out missing outcomes, ROI, integration blockers.",
-        "#ef4444"
-      ),
-    ],
-  },
-
-  // 4) Political Spectrum (balanced tone-checkers)
-  {
-    id: "political-spectrum",
-    name: "Political Spectrum",
-    personas: [
-      P(
-        "Democratic Socialist",
-        "Values equity and social safety nets.",
-        "Assess alignment with labor rights, affordability, inclusion.",
-        "#ef4444"
-      ),
-      P(
-        "Center Left",
-        "Pragmatic progressive.",
-        "Seek workable policy framing and coalition-building language.",
-        "#3b82f6"
-      ),
-      P(
-        "Centrist / Independent",
-        "Moderation, evidence, and trade-offs.",
-        "Flag partisan tone; request balanced pros/cons.",
-        "#64748b"
-      ),
-      P(
-        "Center Right",
-        "Market-oriented, institutions-focused.",
-        "Request fiscal prudence and limited-overreach framing.",
-        "#16a34a"
-      ),
-      P(
-        "MAGA",
-        "Populist, anti-elite rhetoric sensitivity.",
-        "Flag technocratic tone; ask for concrete local benefits.",
-        "#b91c1c"
-      ),
-      P(
-        "Libertarian",
-        "Individual liberty, minimal state.",
-        "Flag mandates; ask for voluntary/adoption paths.",
-        "#eab308"
-      ),
-    ],
-  },
-
-  // 5) Academic Peer Review
-  {
-    id: "academic-peer-review",
-    name: "Academic Peer Review",
-    personas: [
-      P(
-        "Methodologist",
-        "Causal inference, validity, reproducibility.",
-        "Probe assumptions, threats to validity, and confounds.",
-        "#22c55e"
-      ),
-      P(
-        "Statistician",
-        "Rigor, power, error rates.",
-        "Request effect sizes, CIs, and assumptions checks.",
-        "#0ea5e9"
-      ),
-      P(
-        "Domain Expert",
-        "Contextual grounding and literature.",
-        "Check citations, gaps vs prior work, practical implications.",
-        "#a855f7"
-      ),
-      P(
-        "Editor",
-        "Structure, clarity, and ethics.",
-        "Enforce clarity, concision, and ethical statements.",
-        "#ef4444"
-      ),
-    ],
-  },
-
-  // 6) Enterprise Sales Cycle
-  {
-    id: "enterprise-sales",
-    name: "Enterprise Sales Cycle",
-    personas: [
-      P(
-        "Economic Buyer",
-        "Budget authority, ROI-first.",
-        "Ask for business case, payback, and KPI impact.",
-        "#16a34a"
-      ),
-      P(
-        "Champion",
-        "Internal sponsor.",
-        "Check enablement clarity and rollout path.",
-        "#22c55e"
-      ),
-      P(
-        "Security",
-        "Risk, compliance, and audit.",
-        "Probe data flows, encryption, vendor posture.",
-        "#0ea5e9"
-      ),
-      P(
-        "Procurement",
-        "Price and T&Cs.",
-        "Demand clarity on pricing, SLAs, and liabilities.",
-        "#eab308"
-      ),
-      P(
-        "End User",
-        "Usability and workflow fit.",
-        "Ask for friction points and training needs.",
-        "#a855f7"
-      ),
-    ],
-  },
-
-  // 7) Nonprofit Board
-  {
-    id: "nonprofit-board",
-    name: "Nonprofit Board",
-    personas: [
-      P(
-        "Board Chair",
-        "Governance and impact.",
-        "Stress mission alignment and accountability.",
-        "#0ea5e9"
-      ),
-      P(
-        "Program Director",
-        "Outcomes and beneficiaries.",
-        "Ask for logic model and metrics.",
-        "#16a34a"
-      ),
-      P(
-        "Development Lead",
-        "Donor narrative and compliance.",
-        "Request compelling storytelling with transparency.",
-        "#f97316"
-      ),
-      P(
-        "Finance",
-        "Budget, reserves, risk.",
-        "Scrutinize sustainability and runway.",
-        "#64748b"
-      ),
-    ],
-  },
-
-  // 8) Public Sector Review
-  {
-    id: "public-sector",
-    name: "Public Sector Review",
-    personas: [
-      P(
-        "Policy Analyst",
-        "Feasibility and trade-offs.",
-        "Request alternatives analysis and impacts.",
-        "#3b82f6"
-      ),
-      P(
-        "Regulator",
-        "Statutory compliance.",
-        "Flag conflicts with rules; require mitigation.",
-        "#ef4444"
-      ),
-      P(
-        "Civic Advocate",
-        "Equity and access.",
-        "Ask for outreach, language access, ADA compliance.",
-        "#22c55e"
-      ),
-      P(
-        "Budget Office",
-        "Costs and sustainability.",
-        "Demand operating and capital estimates.",
-        "#eab308"
-      ),
-    ],
-  },
-
-  // 9) Product Trio
-  {
-    id: "product-trio",
-    name: "Product Trio",
-    personas: [
-      P(
-        "PM",
-        "Outcomes and prioritization.",
-        "Clarify problem, users, and success metrics.",
-        "#22c55e"
-      ),
-      P(
-        "Design",
-        "Usability and accessibility.",
-        "Flag confusing flows; suggest simplifications.",
-        "#a855f7"
-      ),
-      P(
-        "Engineering",
-        "Feasibility and risks.",
-        "Call out tech debt, scope creep, critical path.",
-        "#0ea5e9"
-      ),
-    ],
-  },
-
-  // 10) Risk & Compliance
-  {
-    id: "risk-compliance",
-    name: "Risk & Compliance",
-    personas: [
-      P(
-        "InfoSec",
-        "Threats, data handling, controls.",
-        "Request threat model, encryption, access policies.",
-        "#ef4444"
-      ),
-      P(
-        "Privacy",
-        "Data minimization and consent.",
-        "Flag over-collection; require DSRs and retention.",
-        "#22c55e"
-      ),
-      P(
-        "Compliance",
-        "Standards mapping.",
-        "Ask for SOC2/ISO/NIST mappings and audit logs.",
-        "#3b82f6"
-      ),
-    ],
-  },
-
-  // 11) Investor Panel
-  {
-    id: "investor-panel",
-    name: "Investor Panel",
-    personas: [
-      P(
-        "Seed Angel",
-        "Team & velocity.",
-        "Ask for insight loops, shipping cadence.",
-        "#f59e0b"
-      ),
-      P(
-        "Series A",
-        "Product-market fit and growth.",
-        "Probe retention, sales efficiency, expansion.",
-        "#22c55e"
-      ),
-      P(
-        "Growth Equity",
-        "Scalability and unit economics.",
-        "Scrutinize CAC/LTV, margin, capital plan.",
-        "#0ea5e9"
-      ),
-    ],
-  },
-
-  // 12) Editorial Board
-  {
-    id: "editorial-board",
-    name: "Editorial Board",
-    personas: [
-      P(
-        "Copy Editor",
-        "Grammar and readability.",
-        "Enforce clear, concise, active voice.",
-        "#a855f7"
-      ),
-      P(
-        "Fact Checker",
-        "Verifiability.",
-        "Flag unsupported claims and missing citations.",
-        "#ef4444"
-      ),
-      P(
-        "Style Editor",
-        "Tone and consistency.",
-        "Unify terminology and voice guidelines.",
-        "#3b82f6"
-      ),
-    ],
-  },
-
-  // 13) Customer Journeys
-  {
-    id: "customer-journeys",
-    name: "Customer Journeys",
-    personas: [
-      P(
-        "New Prospect",
-        "First-touch clarity.",
-        "Demand clear value proposition and next step.",
-        "#22c55e"
-      ),
-      P(
-        "Evaluator",
-        "Comparative analysis.",
-        "Request differentiators and proof points.",
-        "#0ea5e9"
-      ),
-      P(
-        "Champion",
-        "Internal selling.",
-        "Ask for ROI and rollout plan.",
-        "#eab308"
-      ),
-      P(
-        "Administrator",
-        "Deployment burden.",
-        "Probe SSO, provisioning, support model.",
-        "#a855f7"
-      ),
-    ],
-  },
-
-  // 14) Accessibility & Inclusion
-  {
-    id: "a11y-inclusion",
-    name: "Accessibility & Inclusion",
-    personas: [
-      P(
-        "Screen Reader User",
-        "Semantic clarity.",
-        "Flag ambiguous headings, tables, images without alt text.",
-        "#0ea5e9"
-      ),
-      P(
-        "Low Vision",
-        "Contrast and scale.",
-        "Request high-contrast options and larger tap targets.",
-        "#ef4444"
-      ),
-      P(
-        "Neurodivergent",
-        "Cognitive load.",
-        "Ask for chunking, predictable patterns, reduced noise.",
-        "#22c55e"
-      ),
-      P(
-        "Non-native English",
-        "Plain language.",
-        "Replace idioms; prefer concrete examples.",
-        "#eab308"
-      ),
-    ],
-  },
-
-  // 15) Internationalization
-  {
-    id: "internationalization",
-    name: "Internationalization",
-    personas: [
-      P(
-        "EU Market",
-        "Data residency and privacy.",
-        "Flag US-only assumptions; address GDPR nuances.",
-        "#3b82f6"
-      ),
-      P(
-        "APAC Market",
-        "Localization and latency.",
-        "Ask for translations, local partners, time-zone SLAs.",
-        "#22c55e"
-      ),
-      P(
-        "LATAM Market",
-        "Payments and support.",
-        "Request local payment rails and Spanish/Portuguese support.",
-        "#f59e0b"
-      ),
-    ],
-  },
-
-  // 16) Security Review
-  {
-    id: "security-review",
-    name: "Security Review",
-    personas: [
-      P(
-        "AppSec",
-        "Secure SDLC.",
-        "Ask for threat modeling, code scanning, and secrets handling.",
-        "#ef4444"
-      ),
-      P(
-        "InfraSec",
-        "Cloud posture.",
-        "Probe network segmentation and least privilege.",
-        "#0ea5e9"
-      ),
-      P(
-        "Red Team",
-        "Abuse cases.",
-        "Challenge assumptions; propose controls.",
-        "#a855f7"
-      ),
-    ],
-  },
-
-  // 17) Data Science Review
-  {
-    id: "data-science",
-    name: "Data Science Review",
-    personas: [
-      P(
-        "ML Engineer",
-        "Production ML",
-        "Ask for evaluation metrics, drift, and rollback.",
-        "#22c55e"
-      ),
-      P(
-        "Data Scientist",
-        "Methodology & bias.",
-        "Probe sampling, bias, and interpretability.",
-        "#3b82f6"
-      ),
-      P(
-        "Data Engineer",
-        "Pipelines & quality.",
-        "Demand lineage, quality checks, SLAs.",
-        "#f59e0b"
-      ),
-    ],
-  },
-
-  // 18) UX Research Panel
-  {
-    id: "ux-research",
-    name: "UX Research Panel",
-    personas: [
-      P(
-        "New User",
-        "Onboarding clarity.",
-        "Ask what is confusing in first 5 minutes.",
-        "#22c55e"
-      ),
-      P(
-        "Power User",
-        "Depth & efficiency.",
-        "Push for shortcuts and batch flows.",
-        "#0ea5e9"
-      ),
-      P(
-        "Accessibility Advocate",
-        "Barrier identification.",
-        "Flag non-compliant patterns and alternatives.",
-        "#ef4444"
-      ),
-    ],
-  },
-
-  // 19) Ops & Support
-  {
-    id: "ops-support",
-    name: "Operations & Support",
-    personas: [
-      P(
-        "Support Lead",
-        "Case drivers.",
-        "Predict top issues and KB needs.",
-        "#a855f7"
-      ),
-      P(
-        "SRE",
-        "Reliability & incident response.",
-        "Ask for SLOs and on-call playbooks.",
-        "#0ea5e9"
-      ),
-      P(
-        "QA",
-        "Defect prevention.",
-        "Request test plans and acceptance criteria.",
-        "#22c55e"
-      ),
-    ],
-  },
-
-  // 20) Education Stakeholders
-  {
-    id: "education-stakeholders",
-    name: "Education Stakeholders",
-    personas: [
-      P(
-        "Teacher",
-        "Classroom practicality.",
-        "Ask for lesson alignment and time cost.",
-        "#3b82f6"
-      ),
-      P(
-        "Parent",
-        "Safety & transparency.",
-        "Probe privacy, grading fairness, support.",
-        "#f59e0b"
-      ),
-      P(
-        "Student",
-        "Clarity & motivation.",
-        "Flag confusing wording; suggest examples.",
-        "#22c55e"
-      ),
-      P(
-        "Administrator",
-        "Policy & budget.",
-        "Request compliance and rollout plans.",
-        "#64748b"
-      ),
-    ],
-  },
+  { id: "cross-functional", name: "Cross-Functional Team", personas: [
+    {
+      id: "senior-manager",
+      name: "Senior Manager",
+      color: "#2563eb",
+      system: "You are a senior business leader focused on clear executive communication and decision context.",
+      instruction: "Score clarity, tone, and alignment. Call out...t help or hinder exec understanding. Suggest concise rewrites.",
+      enabled: true,
+    },
+    {
+      id: "legal",
+      name: "Legal",
+      color: "#7c3aed",
+      system: "You are corporate counsel focused on risk, claims, IP, and contractual language.",
+      instruction: "Flag ambiguous or risky statements. Suggest safer phrasing. Provide overall risk assessment.",
+      enabled: true,
+    },
+    {
+      id: "hr",
+      name: "HR",
+      color: "#f59e0b",
+      system: "You are an HR partner focused on inclusive, respectful language and change-management.",
+      instruction: "Identify wording that could be exclusionary ...or unclear to broad audiences. Suggest inclusive alternatives.",
+      enabled: true,
+    },
+    {
+      id: "tech-lead",
+      name: "Technical Lead",
+      color: "#10b981",
+      system: "You are a pragmatic engineering lead who values feasibility and risk awareness.",
+      instruction: "Call out technical risks, missing constraints, unclear dependencies, and unrealistic timelines.",
+      enabled: true,
+    },
+    {
+      id: "junior-analyst",
+      name: "Junior Analyst",
+      color: "#ef4444",
+      system: "You are a curious analyst who asks clarifying questions and hunts for missing data.",
+      instruction: "Point out unclear logic, missing data, and assumptions. Ask 2-3 clarifying questions.",
+      enabled: true,
+    },
+  ]},
+  { id: "marketing-focus", name: "Marketing Focus Group", personas: [
+    {
+      id: "midwest-parent",
+      name: "Midwest Parent",
+      color: "#f59e0b",
+      system: "You are a practical parent from the Midwest focused on value, trust, and family benefit.",
+      instruction: "React to whether this feels trustworthy, useful, and affordable for a family like yours.",
+      enabled: true,
+    },
+    {
+      id: "genz-student",
+      name: "Gen-Z Student",
+      color: "#0ea5e9",
+      system: "You are a Gen-Z student with strong BS detection; you value authenticity and ease.",
+      instruction: "Call out cringe or corporate tone. Is it exciting and effortless to adopt?",
+      enabled: true,
+    },
+    {
+      id: "retired-veteran",
+      name: "Retired Veteran",
+      color: "#6d28d9",
+      system: "You are a retired veteran who values clarity, respect, and directness.",
+      instruction: "React to credibility and plain language. Note any patronizing or vague phrasing.",
+      enabled: true,
+    },
+    {
+      id: "smb-owner",
+      name: "Small Business Owner",
+      color: "#16a34a",
+      system: "You run a small local business and make pragmatic ROI-driven decisions.",
+      instruction: "Does this save time or make money? Flag impractical steps or fluffy claims.",
+      enabled: true,
+    },
+  ]},
+  { id: "startup-stakeholders", name: "Startup Stakeholders", personas: [
+    {
+      id: "founder-ceo",
+      name: "Founder/CEO",
+      color: "#ea580c",
+      system: "You are a startup founder focused on narrative, mission, and speed to impact.",
+      instruction: "Is the story compelling and credible? Identify blockers and sharpen the ask.",
+      enabled: true,
+    },
+    {
+      id: "cto",
+      name: "CTO",
+      color: "#14b8a6",
+      system: "You are a CTO balancing innovation with execution reality.",
+      instruction: "Probe architecture tradeoffs, data risks, and staffing assumptions.",
+      enabled: true,
+    },
+    {
+      id: "vp-sales",
+      name: "VP Sales",
+      color: "#f43f5e",
+      system: "You are a revenue leader focused on ICP, pain points, and repeatable motion.",
+      instruction: "Flag weak ICP definition, unclear CTA, or missing proof points.",
+      enabled: true,
+    },
+    {
+      id: "design-lead",
+      name: "Design Lead",
+      color: "#8b5cf6",
+      system: "You are a design lead oriented to clarity, hierarchy, and user empathy.",
+      instruction: "Call out confusing structure, jargon, and missing visuals.",
+      enabled: true,
+    },
+    {
+      id: "investor",
+      name: "Investor",
+      color: "#22c55e",
+      system: "You are an investor seeking traction, team, and market realism.",
+      instruction: "Challenge market size, differentiation, and evidence of PMF.",
+      enabled: true,
+    },
+  ]},
+  { id: "political-spectrum", name: "Political Spectrum", personas: [
+    {
+      id: "progressive",
+      name: "Progressive",
+      color: "#22c55e",
+      system: "You evaluate proposals through equity, inclusion, and climate justice.",
+      instruction: "Assess community impact and equitable outcomes; flag exploitative framing.",
+      enabled: true,
+    },
+    {
+      id: "centrist",
+      name: "Centrist",
+      color: "#3b82f6",
+      system: "You favor pragmatic compromise and institutional stability.",
+      instruction: "Identify balanced tradeoffs, fiscal prudence, and feasible sequencing.",
+      enabled: true,
+    },
+    {
+      id: "conservative",
+      name: "Conservative",
+      color: "#ef4444",
+      system: "You value tradition, personal responsibility, and limited government.",
+      instruction: "Probe unintended consequences, cost burdens, and regulatory overreach.",
+      enabled: true,
+    },
+    {
+      id: "libertarian",
+      name: "Libertarian",
+      color: "#eab308",
+      system: "You prize individual freedom and market solutions.",
+      instruction: "Flag paternalism; prefer voluntary, decentralized alternatives.",
+      enabled: true,
+    },
+    {
+      id: "nonpartisan-analyst",
+      name: "Nonpartisan Analyst",
+      color: "#64748b",
+      system: "You are a neutral analyst focused on evidence and methodology.",
+      instruction: "Check claims, cite sources, and call out uncertainty clearly.",
+      enabled: true,
+    },
+    {
+      id: "local-community",
+      name: "Local Community",
+      color: "#0ea5e9",
+      system: "You represent neighborhood priorities—safety, schools, livability.",
+      instruction: "Assess real-world impact on daily life; surface practical concerns.",
+      enabled: true,
+    },
+  ]},
+  { id: "academic-review", name: "Academic Review Board", personas: [
+    {
+      id: "methods-reviewer",
+      name: "Methods Reviewer",
+      color: "#22c55e",
+      system: "You focus on study design, validity, and reproducibility.",
+      instruction: "Flag bias, confounders, and missing controls; suggest fixes.",
+      enabled: true,
+    },
+    {
+      id: "literature-reviewer",
+      name: "Literature Reviewer",
+      color: "#2563eb",
+      system: "You ensure claims are situated within the literature.",
+      instruction: "Point to missing citations and contradictory findings.",
+      enabled: true,
+    },
+    {
+      id: "ethics-reviewer",
+      name: "Ethics Reviewer",
+      color: "#ef4444",
+      system: "You evaluate participant risk, consent, and data handling.",
+      instruction: "Call out ethics gaps and propose mitigation steps.",
+      enabled: true,
+    },
+  ]},
+  { id: "enterprise-governance", name: "Enterprise Governance", personas: [
+    {
+      id: "security",
+      name: "Security",
+      color: "#0ea5e9",
+      system: "You evaluate data security, identity, and threat surface.",
+      instruction: "Identify data flow risks, compliance gaps, and hardening steps.",
+      enabled: true,
+    },
+    {
+      id: "privacy",
+      name: "Privacy",
+      color: "#f97316",
+      system: "You focus on data minimization and user rights.",
+      instruction: "Flag over-collection and unclear retention; suggest least-privilege.",
+      enabled: true,
+    },
+    {
+      id: "finance",
+      name: "Finance",
+      color: "#22c55e",
+      system: "You evaluate costs, ROI, and budgeting realism.",
+      instruction: "Check COGS, headcount, and hidden costs; validate payback.",
+      enabled: true,
+    },
+  ]},
+  { id: "public-sector", name: "Public Sector Advisory", personas: [
+    {
+      id: "procurement",
+      name: "Procurement",
+      color: "#8b5cf6",
+      system: "You focus on fair bidding, specs, and vendor risk.",
+      instruction: "Flag sole-source risk and vague requirements; ask for measurable KPIs.",
+      enabled: true,
+    },
+    {
+      id: "counsel",
+      name: "Counsel",
+      color: "#ef4444",
+      system: "You ensure statutory compliance and defensible record.",
+      instruction: "Note open-meeting transparency, FOIL/FOIA, and conflict handling.",
+      enabled: true,
+    },
+    {
+      id: "ombudsman",
+      name: "Ombudsman",
+      color: "#10b981",
+      system: "You represent citizens’ service quality and recourse.",
+      instruction: "Surface access barriers and escalation paths; fairness and equity.",
+      enabled: true,
+    },
+  ]},
+  { id: "nonprofit-board", name: "Nonprofit Board", personas: [
+    {
+      id: "board-chair",
+      name: "Board Chair",
+      color: "#e11d48",
+      system: "You drive mission alignment and fiduciary duty.",
+      instruction: "Call out mission drift, weak metrics, and governance risks.",
+      enabled: true,
+    },
+    {
+      id: "treasurer",
+      name: "Treasurer",
+      color: "#22c55e",
+      system: "You scrutinize budgets, reserves, and restricted funds.",
+      instruction: "Probe sustainability and cash risk; suggest realistic pacing.",
+      enabled: true,
+    },
+    {
+      id: "program-director",
+      name: "Program Director",
+      color: "#3b82f6",
+      system: "You ensure program logic and beneficiary outcomes.",
+      instruction: "Test theory of change, evaluation plan, and capability gaps.",
+      enabled: true,
+    },
+  ]},
+  { id: "product-trio", name: "Product Development Trio", personas: [
+    {
+      id: "pm",
+      name: "Product Manager",
+      color: "#22c55e",
+      system: "You balance user value, viability, and timelines.",
+      instruction: "Is the problem clear? Are scope cuts obvious? What metrics matter?",
+      enabled: true,
+    },
+    {
+      id: "design",
+      name: "Design",
+      color: "#8b5cf6",
+      system: "You advocate for clarity, accessibility, and hierarchy.",
+      instruction: "Flag confusing flows and missing states; suggest structure fixes.",
+      enabled: true,
+    },
+    {
+      id: "engineering",
+      name: "Engineering",
+      color: "#2563eb",
+      system: "You are pragmatic about delivery and reliability.",
+      instruction: "Surface risky assumptions, data/infra needs, and rollout plan.",
+      enabled: true,
+    },
+  ]},
+  { id: "support-voices", name: "Customer Support Voices", personas: [
+    {
+      id: "support-agent",
+      name: "Support Agent",
+      color: "#22c55e",
+      system: "You care about clarity, sentiment, and deflection rate.",
+      instruction: "Is the content self-serveable? What macros or links are missing?",
+      enabled: true,
+    },
+    {
+      id: "support-manager",
+      name: "Support Manager",
+      color: "#ef4444",
+      system: "You optimize quality, CSAT, and backlog health.",
+      instruction: "Flag SLA risks, handoff gaps, and escalation criteria.",
+      enabled: true,
+    },
+    {
+      id: "documentation",
+      name: "Documentation",
+      color: "#0ea5e9",
+      system: "You maintain help-center clarity and coverage.",
+      instruction: "Note missing how-to steps, screenshots, and version drift.",
+      enabled: true,
+    },
+  ]},
+  { id: "localization", name: "International Localization", personas: [
+    {
+      id: "emea-reader",
+      name: "EMEA Reader",
+      color: "#22c55e",
+      system: "You check UK/EU spelling, idioms, and cultural references.",
+      instruction: "Flag US-centric terms; propose neutral alternatives.",
+      enabled: true,
+    },
+    {
+      id: "latam-reader",
+      name: "LATAM Reader",
+      color: "#ef4444",
+      system: "You check Spanish/Portuguese borrowings and tone.",
+      instruction: "Call out untranslatable idioms; suggest simplified phrasing.",
+      enabled: true,
+    },
+    {
+      id: "apac-reader",
+      name: "APAC Reader",
+      color: "#2563eb",
+      system: "You check regional sensibilities and formality norms.",
+      instruction: "Flag honorifics/collectivist phrasing mismatches; clarity first.",
+      enabled: true,
+    },
+  ]},
+  { id: "a11y-compliance", name: "Accessibility & Compliance", personas: [
+    {
+      id: "plain-language",
+      name: "Plain Language",
+      color: "#f97316",
+      system: "You enforce plain-language guidelines and readability.",
+      instruction: "Highlight long sentences, passive voice, and jargon; rewrite simply.",
+      enabled: true,
+    },
+    {
+      id: "accessibility-auditor",
+      name: "Accessibility Auditor",
+      color: "#22c55e",
+      system: "You care about WCAG and inclusive patterns.",
+      instruction: "Flag color/contrast risks and missing alt text; suggest fixes.",
+      enabled: true,
+    },
+    {
+      id: "compliance-officer",
+      name: "Compliance Officer",
+      color: "#2563eb",
+      system: "You ensure policy/process conformance and approvals.",
+      instruction: "Note missing disclosures, approvals, and retention guidance.",
+      enabled: true,
+    },
+  ]},
+  { id: "editorial-board", name: "Editorial Board", personas: [
+    {
+      id: "copy-editor",
+      name: "Copy Editor",
+      color: "#22c55e",
+      system: "You fix grammar and clarity.",
+      instruction: "Suggest concise rewrites; ensure consistency.",
+      enabled: true,
+    },
+    {
+      id: "fact-checker",
+      name: "Fact Checker",
+      color: "#2563eb",
+      system: "You verify claims and dates.",
+      instruction: "Flag doubtful facts and request sources.",
+      enabled: true,
+    },
+    {
+      id: "style-editor",
+      name: "Style Editor",
+      color: "#f43f5e",
+      system: "You keep tone and style on-brand.",
+      instruction: "Call out off-brand voice and formatting issues; propose fixes.",
+      enabled: true,
+    },
+  ]},
 ];
 
-/* ----------------------------- Settings ----------------------------- */
+// ===== State =====
+let ALL_SETS: PersonaSet[] = DEFAULT_SETS;
+let SETTINGS: AppSettings = {};
+let ACTIVE_SET: PersonaSet | null = null;
+let ACTIVE_PERSONAS: Persona[] = [];
 
-function defaultSettings() {
-  return {
-    provider: { provider: "openrouter" as const, model: "openrouter/auto", openrouterKey: "" },
-    personaSetId: DEFAULT_SETS[0].id,
-    personaSets: DEFAULT_SETS,
-  };
-}
+// ===== DOM helpers =====
+const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
+  document.getElementById(id) as T | null;
 
-function loadSettings() {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return defaultSettings();
-    const v = JSON.parse(raw);
-    if (!v.personaSets?.length) v.personaSets = DEFAULT_SETS;
-    if (!v.personaSetId) v.personaSetId = v.personaSets[0].id;
-    return v;
-  } catch {
-    return defaultSettings();
-  }
-}
-
-function saveSettings() {
-  localStorage.setItem(LS_KEY, JSON.stringify(SETTINGS));
-}
-
-function currentSet(): PersonaSet {
-  const id = SETTINGS.personaSetId;
-  return SETTINGS.personaSets.find((s) => s.id === id) || SETTINGS.personaSets[0];
-}
-
-/* ----------------------------- UI wiring ----------------------------- */
-
-window.addEventListener("error", (e) =>
-  log(`[PF] window.error: ${e.message} @ ${e.filename || ""}:${e.lineno || ""}`)
-);
-window.addEventListener("unhandledrejection", (ev) =>
-  log(`[PF] unhandledrejection: ${String((ev as any).reason)}`)
-);
-
-Office.onReady(async () => {
-  document.body.style.minWidth = "500px";
-  SETTINGS = loadSettings();
-
-  populatePersonaSets();
-  hydrateProviderUI();
-
-  // Nav buttons
-  const btnSettings = byId<HTMLButtonElement>("btnSettings");
-  if (btnSettings) btnSettings.onclick = () => showView("view-settings");
-  const btnBack = byId<HTMLButtonElement>("btnBack");
-  if (btnBack) btnBack.onclick = () => showView("view-review");
-
-  // Debug panel
-  const toggleDebug = byId<HTMLButtonElement>("toggleDebug");
-  if (toggleDebug)
-    toggleDebug.onclick = () => {
-      const p = byId("debugPanel");
-      if (!p) return;
-      p.classList.toggle("hidden");
-      toggleDebug.textContent = p.classList.contains("hidden") ? "Show Debug" : "Hide Debug";
-    };
-  const clearDbg = byId<HTMLButtonElement>("clearDebug");
-  if (clearDbg) clearDbg.onclick = () => {
-    const p = byId("debugLog");
-    if (p) p.innerHTML = "";
-  };
-
-  // Persona set selectors
-  const sel = byId<HTMLSelectElement>("personaSet");
-  if (sel)
-    sel.onchange = (e: any) => {
-      SETTINGS.personaSetId = e.target.value;
-      saveSettings();
-      populatePersonaSets();
-    };
-  const ssel = byId<HTMLSelectElement>("settingsPersonaSet");
-  if (ssel)
-    ssel.onchange = (e: any) => {
-      SETTINGS.personaSetId = e.target.value;
-      saveSettings();
-      populatePersonaSets();
-    };
-
-  // Provider/model inputs
-  const prv = byId<HTMLSelectElement>("provider");
-  if (prv)
-    prv.onchange = (e: any) => {
-      SETTINGS.provider.provider = e.target.value as ProviderConfig["provider"];
-      hydrateProviderUI();
-      saveSettings();
-    };
-  const key = byId<HTMLInputElement>("openrouterKey");
-  if (key)
-    key.oninput = (e: any) => {
-      SETTINGS.provider.openrouterKey = e.target.value;
-      saveSettings();
-    };
-  const mdl = byId<HTMLInputElement>("model");
-  if (mdl)
-    mdl.oninput = (e: any) => {
-      SETTINGS.provider.model = e.target.value;
-      saveSettings();
-    };
-
-  // Settings save/restore
-  const saveBtn = byId<HTMLButtonElement>("saveSettings");
-  if (saveBtn)
-    saveBtn.onclick = () => {
-      const set = currentSet();
-      set.personas.forEach((p, idx) => {
-        const en = byId<HTMLInputElement>(`pe-enabled-${idx}`);
-        const sys = byId<HTMLInputElement>(`pe-sys-${idx}`);
-        const ins = byId<HTMLInputElement>(`pe-ins-${idx}`);
-        const col = byId<HTMLInputElement>(`pe-color-${idx}`);
-        if (en) p.enabled = !!en.checked;
-        if (sys) p.system = sys.value;
-        if (ins) p.instruction = ins.value;
-        if (col) p.color = col.value || p.color;
-      });
-      saveSettings();
-      renderPersonaNamesAndLegend();
-      toast("Settings saved");
-    };
-
-  const restoreBtn = byId<HTMLButtonElement>("restoreDefaults");
-  if (restoreBtn)
-    restoreBtn.onclick = () => {
-      const id = currentSet().id;
-      const fresh = DEFAULT_SETS.find((s) => s.id === id);
-      if (fresh) {
-        const i = SETTINGS.personaSets.findIndex((s) => s.id === id);
-        SETTINGS.personaSets[i] = JSON.parse(JSON.stringify(fresh));
-        saveSettings();
-        populatePersonaSets();
-        toast("Default persona set restored");
-      }
-    };
-
-  // Actions
-  const runBtn = byId<HTMLButtonElement>("runBtn");
-  if (runBtn) runBtn.onclick = handleRunReview;
-
-  const retryBtn = byId<HTMLButtonElement>("retryBtn");
-  if (retryBtn) retryBtn.onclick = handleRetryFailed;
-
-  const exportBtn = byId<HTMLButtonElement>("exportBtn");
-  if (exportBtn) exportBtn.onclick = handleExportPDF;
-
-  const clearBtn = byId<HTMLButtonElement>("clearBtn");
-  if (clearBtn)
-    clearBtn.onclick = async () => {
-      const ok = await confirmAsync("Clear all comments", "Delete ALL comments in this document?");
-      if (!ok) return;
-      const n = await clearAllComments();
-      if (n >= 0) toast(n > 0 ? `Deleted ${n} comment(s).` : "No comments found.");
-    };
-
-  showView("view-review");
-  log("[PF] Office.onReady → UI initialized");
-});
-
-/* ----------------------------- UI helpers ----------------------------- */
-
-function populatePersonaSets() {
-  const sets = SETTINGS.personaSets;
-  const sel = byId<HTMLSelectElement>("personaSet");
-  if (sel) {
-    sel.innerHTML = "";
-    sets.forEach((s) => {
-      const o = document.createElement("option");
-      o.value = s.id;
-      o.textContent = s.name;
-      sel.appendChild(o);
-    });
-    sel.value = SETTINGS.personaSetId;
-  }
-  const ssel = byId<HTMLSelectElement>("settingsPersonaSet");
-  if (ssel) {
-    ssel.innerHTML = "";
-    sets.forEach((s) => {
-      const o = document.createElement("option");
-      o.value = s.id;
-      o.textContent = s.name;
-      ssel.appendChild(o);
-    });
-    ssel.value = SETTINGS.personaSetId;
-  }
-  renderPersonaNamesAndLegend();
-  renderPersonaEditor();
-}
-
-function renderPersonaNamesAndLegend() {
-  const set = currentSet();
-  const names = byId("personaList");
-  if (names) {
-    names.textContent = set.personas
-      .filter((p) => p.enabled)
-      .map((p) => p.name)
-      .join(", ");
-  }
-  const legend = byId("legend");
-  if (legend) {
-    legend.innerHTML = "";
-    set.personas.forEach((p) => {
-      const row = document.createElement("div");
-      row.style.display = "flex";
-      row.style.alignItems = "center";
-      row.style.gap = "6px";
-      const dot = document.createElement("span");
-      dot.style.display = "inline-block";
-      dot.style.width = "10px";
-      dot.style.height = "10px";
-      dot.style.borderRadius = "50%";
-      dot.style.background = p.color;
-      row.appendChild(dot);
-      row.appendChild(document.createTextNode(p.name));
-      legend.appendChild(row);
-    });
-  }
-}
-
-function renderPersonaEditor() {
-  const set = currentSet();
-  const box = byId("personaEditor");
-  if (!box) return;
-  box.innerHTML = "";
-  set.personas.forEach((p, idx) => {
-    const card = document.createElement("div");
-    card.className = "card";
-    card.style.marginBottom = "8px";
-    card.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-        <div style="display:flex;gap:8px;align-items:center">
-          <input type="checkbox" id="pe-enabled-${idx}" ${p.enabled ? "checked" : ""}/>
-          <strong>${escapeHtml(p.name)}</strong>
-        </div>
-        <div style="display:flex;gap:6px;align-items:center">
-          <label>Color</label><input id="pe-color-${idx}" type="color" value="${p.color}"/>
-        </div>
-      </div>
-      <div class="row"><label>System</label><input id="pe-sys-${idx}" type="text" value="${escapeHtml(
-        p.system
-      )}"/></div>
-      <div class="row"><label>Instruction</label><input id="pe-ins-${idx}" type="text" value="${escapeHtml(
-        p.instruction
-      )}"/></div>
-    `;
-    box.appendChild(card);
-  });
-}
-
-function hydrateProviderUI() {
-  const pr = byId<HTMLSelectElement>("provider");
-  if (pr) pr.value = SETTINGS.provider.provider;
-  const key = byId<HTMLInputElement>("openrouterKey");
-  if (key) key.value = SETTINGS.provider.openrouterKey || "";
-  const mdl = byId<HTMLInputElement>("model");
-  if (mdl) mdl.value = SETTINGS.provider.model || "";
-  const row = byId("openrouterKeyRow");
-  if (row) row.classList.toggle("hidden", SETTINGS.provider.provider !== "openrouter");
-}
-
-/* ----------------------------- Progress, status ----------------------------- */
-
-function setProgress(p: number) {
-  const bar = byId<HTMLDivElement>("progBar");
-  if (bar) bar.style.width = `${Math.max(0, Math.min(100, p))}%`;
-}
-
-function setBadgesHost(personas: Persona[]) {
-  const host = byId("personaStatus");
-  if (!host) return;
-  host.innerHTML = "";
-  personas.forEach((p) => {
-    const row = document.createElement("div");
-    row.style.display = "flex";
-    row.style.justifyContent = "space-between";
-    row.style.marginBottom = "4px";
-    row.innerHTML = `<span style="display:inline-flex;align-items:center;gap:6px;">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${p.color};"></span>
-        ${escapeHtml(p.name)}
-      </span>
-      <span id="badge-${p.id}" class="badge">queued</span>`;
-    host.appendChild(row);
-  });
-}
-
-function setBadge(id: string, st: "queued" | "running" | "done" | "error", note?: string) {
-  const b = byId("badge-" + id);
-  if (!b) return;
-  (b as HTMLElement).className =
-    "badge " + (st === "done" ? "badge-done" : st === "error" ? "badge-failed" : "");
-  (b as HTMLElement).textContent = st + (note ? ` – ${note}` : "");
-}
-
-/* ----------------------------- Run / Retry ----------------------------- */
-
-async function handleRunReview() {
-  if (RUN_LOCK) {
-    toast("Already running…");
-    return;
-  }
-  RUN_LOCK = true;
-  try {
-    LAST_RESULTS = [];
-    const res = byId("results");
-    if (res) res.innerHTML = "";
-    const stat = byId("personaStatus");
-    if (stat) stat.innerHTML = "";
-    await runAllEnabledPersonas(false);
-  } finally {
-    RUN_LOCK = false;
-  }
-}
-
-async function handleRetryFailed() {
-  if (RUN_LOCK) {
-    toast("Already running…");
-    return;
-  }
-  RUN_LOCK = true;
-  try {
-    await runAllEnabledPersonas(true);
-  } finally {
-    RUN_LOCK = false;
-  }
-}
-
-async function runAllEnabledPersonas(retryOnly: boolean) {
-  const set = currentSet();
-  const personas = set.personas.filter((p) => p.enabled);
-  if (!personas.length) {
-    toast("No personas enabled in this set.");
-    return;
-  }
-  setBadgesHost(personas);
-  const docText = await getWholeDocText();
-  const total = personas.length;
-  let done = 0;
-  setProgress(0);
-
-  for (const p of personas) {
-    if (retryOnly) {
-      const prev = LAST_RESULTS.find((r) => r.personaId === p.id);
-      if (prev && prev.status === "done") {
-        done++;
-        setProgress((done / total) * 100);
-        continue;
-      }
-    }
-    setBadge(p.id, "running");
-    try {
-      const resp = await callLLMForPersona(p, docText);
-      const normalized = normalizeResponse(resp);
-      const { matched, unmatched } = await applyCommentsForMatchesOnly(p, normalized);
-      addResultCard(p, normalized, unmatched);
-      upsertResult({
-        personaId: p.id,
-        personaName: p.name,
-        status: "done",
-        scores: normalized.scores,
-        global_feedback: normalized.global_feedback,
-        comments: matched,
-        unmatched,
-        raw: resp,
-      });
-      setBadge(p.id, "done");
-    } catch (err: any) {
-      log(`[PF] Persona ${p.name} error`, err);
-      upsertResult({
-        personaId: p.id,
-        personaName: p.name,
-        status: "error",
-        error: String((err && err.message) || err),
-      });
-      setBadge(p.id, "error", String((err && err.message) || "LLM call failed"));
-    }
-    done++;
-    setProgress((done / total) * 100);
-  }
-  toast("Review finished.");
-}
-
-/* ----------------------------- Word helpers ----------------------------- */
-
-async function getWholeDocText(): Promise<string> {
-  return Word.run(async (ctx) => {
-    const body = ctx.document.body;
-    body.load("text");
-    await ctx.sync();
-    return body.text || "";
-  });
-}
-
-async function clearAllComments(): Promise<number> {
-  return Word.run(async (ctx) => {
-    const coll = (ctx.document as any).comments;
-    if (!coll || typeof coll.load !== "function") {
-      toast("This Word build can’t list comments. Use Review → Delete → Delete All Comments.");
-      return -1;
-    }
-    coll.load("items");
-    await ctx.sync();
-    let n = 0;
-    for (const c of coll.items) {
-      (c as any).delete();
-      n++;
-    }
-    await ctx.sync();
-    return n;
-  });
-}
-
-function normalizeQuote(s: string) {
-  return (s || "")
-    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
-    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
-    .replace(/[\u2013\u2014]/g, "-")
-    .replace(/\u00A0/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function middleSlice(s: string, max: number) {
-  if (s.length <= max) return s;
-  const start = Math.max(0, Math.floor((s.length - max) / 2));
-  return s.slice(start, start + max);
-}
-
-function seedFrom(s: string, which: "first" | "middle" | "last", words: number) {
-  const t = s.split(/\s+/).filter(Boolean);
-  if (t.length <= words) return s;
-  if (which === "first") return t.slice(0, words).join(" ");
-  if (which === "last") return t.slice(-words).join(" ");
-  const mid = Math.floor(t.length / 2);
-  const half = Math.floor(words / 2);
-  return t.slice(Math.max(0, mid - half), Math.max(0, mid - half) + words).join(" ");
-}
-
-async function findRangeForQuote(ctx: Word.RequestContext, quote: string): Promise<Word.Range | null> {
-  const body = ctx.document.body;
-  let q = normalizeQuote(quote);
-  if (q.length > 260) q = middleSlice(q, 180);
-
-  const trySearch = async (needle: string) => {
-    const r = body.search(needle, {
-      matchCase: false,
-      matchWholeWord: false,
-      matchWildcards: false,
-      ignoreSpace: true,
-      ignorePunct: true,
-    });
-    r.load("items");
-    await ctx.sync();
-    return r.items.length ? r.items[0] : null;
-  };
-
-  // 1) Direct try
-  let r = await trySearch(q);
-  if (r) return r;
-
-  // 2) Strip quotes if any
-  const dq = q.replace(/^["'“”‘’]+/, "").replace(/["'“”‘’]+$/, "").trim();
-  if (dq && dq !== q) {
-    r = await trySearch(dq);
-    if (r) return r;
-  }
-
-  // 3) Seeds (first/middle/last words)
-  for (const w of [8, 6, 5]) {
-    for (const pos of ["first", "middle", "last"] as const) {
-      const s = seedFrom(q, pos, w);
-      if (!s) continue;
-      r = await trySearch(s);
-      if (r) return r;
-    }
+function firstById<T extends HTMLElement = HTMLElement>(ids: string[]): T | null {
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el) return el as T;
   }
   return null;
 }
 
-async function applyCommentsForMatchesOnly(persona: Persona, data: NormalizedLLM) {
-  const matched: NormalizedLLM["comments"] = [];
-  const unmatched: Array<{ quote: string; comment: string }> = [];
-
-  if (!Array.isArray(data.comments) || !data.comments.length) {
-    return { matched, unmatched };
-  }
-
-  for (const [i, c] of data.comments.entries()) {
-    const quote = String(c.quote || "").trim();
-    const note = String(c.comment || "").trim();
-    if (!quote || quote.length < 3) {
-      log(`[PF] ${persona.name}: comment #${i + 1} empty/short`, c);
-      continue;
-    }
-    const placed = await Word.run(async (ctx) => {
-      const r = await findRangeForQuote(ctx, quote);
-      if (!r) return false;
-      const cm = (r as any).insertComment(`${personaPrefix(persona)} ${note}`);
-      cm.load("id");
-      await ctx.sync();
-      return true;
-    });
-
-    if (placed) {
-      matched.push({
-        quote,
-        spanStart: Number(c.spanStart || 0),
-        spanEnd: Number(c.spanEnd || 0),
-        comment: note,
-      });
-    } else {
-      unmatched.push({ quote, comment: note });
-    }
-  }
-
-  return { matched, unmatched };
+function show(el: HTMLElement | null, on: boolean) {
+  if (!el) return;
+  el.style.display = on ? "" : "none";
 }
 
-/* ----------------------------- LLM calls ----------------------------- */
+function text(el: HTMLElement | null, s: string) {
+  if (el) el.textContent = s;
+}
 
-function withTimeout<T>(p: Promise<T>, ms = 45000): Promise<T> {
-  return new Promise<T>((res, rej) => {
-    const t = setTimeout(() => rej(new Error(`Request timed out after ${ms}ms`)), ms);
-    p.then(
-      (v) => {
-        clearTimeout(t);
-        res(v);
-      },
-      (e) => {
-        clearTimeout(t);
-        rej(e);
-      }
-    );
+function toast(msg: string) {
+  console.log("[PF]", msg);
+  const t = firstById<HTMLDivElement>(["toast", "pfToast"]);
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+async function confirmAsync(message: string): Promise<boolean> {
+  const modal = firstById<HTMLDialogElement>(["confirmModal", "pfConfirm"]);
+  if (!modal) return window.confirm(message);
+  const msg = modal.querySelector<HTMLElement>("[data-confirm-message]");
+  if (msg) msg.textContent = message;
+  const ok = modal.querySelector<HTMLButtonElement>("[data-confirm-ok]");
+  const cancel = modal.querySelector<HTMLButtonElement>("[data-confirm-cancel]");
+  return new Promise((resolve) => {
+    const done = (v:boolean)=>{ ok?.removeEventListener("click", onOk); cancel?.removeEventListener("click", onCancel); (modal as any).close?.(); resolve(v); };
+    const onOk = ()=>done(true);
+    const onCancel = ()=>done(false);
+    (modal as any).showModal?.();
+    ok?.addEventListener("click", onOk);
+    cancel?.addEventListener("click", onCancel);
   });
 }
 
-async function fetchJson(url: string, init: RequestInit) {
-  const r = await withTimeout(fetch(url, init));
-  let body: any = null;
-  let text = "";
-  try {
-    const ct = r.headers.get("content-type") || "";
-    if (ct.includes("application/json")) body = await r.json();
-    else {
-      text = await r.text();
-      try {
-        body = JSON.parse(text);
-      } catch {
-        /* ignore */
-      }
-    }
-  } catch (e) {
-    try {
-      text = await r.text();
-    } catch {
-      /* ignore */
-    }
+// ===== View switching (Settings <-> Main) =====
+function initViewSwitching() {
+  const main = firstById<HTMLElement>(["mainView","reviewView","mainSection","reviewSection","main","view-main","pfMain"]);
+  const settings = firstById<HTMLElement>(["settingsView","settingsSection","settings","view-settings","pfSettings"]);
+  function switchView(which:"main"|"settings"){
+    show(main, which==="main");
+    show(settings, which==="settings");
   }
-  return { ok: (r as any).ok, status: (r as any).status, body, text };
-}
+  (window as any)._pfSwitchView = switchView;
+  switchView("main");
 
-async function callLLMForPersona(persona: Persona, docText: string): Promise<any> {
-  const META_PROMPT = `
-Return ONLY valid JSON matching this schema:
-{
-  "scores":{"clarity":0-100,"tone":0-100,"alignment":0-100},
-  "global_feedback":"short paragraph",
-  "comments":[{"quote":"verbatim snippet","spanStart":0,"spanEnd":0,"comment":"..."}]
-}
-Rules: No extra prose; if you output markdown, fence the JSON as \`\`\`json.
-`.trim();
-
-  const sys = `${persona.system}\n\n${META_PROMPT}`;
-  const user = `You are acting as: ${persona.name}
-
-INSTRUCTION:
-${persona.instruction}
-
-DOCUMENT (plain text):
-${docText}`.trim();
-
-  const pr = SETTINGS.provider;
-  log(`[PF] Calling LLM → ${pr.provider} / ${pr.model} (${persona.name})`);
-
-  if (pr.provider === "openrouter") {
-    if (!pr.openrouterKey) throw new Error("Missing OpenRouter API key.");
-    const res = await fetchJson("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${pr.openrouterKey}`,
-        "HTTP-Referer": typeof window !== "undefined" ? window.location.origin : "https://example.com",
-        "X-Title": "Persona Feedback Add-in",
-      },
-      body: JSON.stringify({
-        model: pr.model || "openrouter/auto",
-        messages: [
-          { role: "system", content: sys },
-          { role: "user", content: user },
-        ],
-        temperature: 0.2,
-      }),
-    });
-    if (!res.ok) throw new Error(`OpenRouter HTTP ${res.status}: ${res.text || safeJson(res.body)}`);
-    const content = res.body?.choices?.[0]?.message?.content ?? "";
-    log("[PF] OpenRouter raw", res.body);
-    return parseJsonFromText(content);
-  } else {
-    // Ollama local
-    const res = await fetchJson("http://127.0.0.1:11434/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: pr.model || "llama3",
-        stream: false,
-        messages: [
-          { role: "system", content: sys },
-          { role: "user", content: user },
-        ],
-        options: { temperature: 0.2 },
-      }),
-    });
-    if (!res.ok) throw new Error(`Ollama HTTP ${res.status}: ${res.text || safeJson(res.body)}`);
-    const content = res.body?.message?.content ?? "";
-    log("[PF] Ollama raw", res.body);
-    return parseJsonFromText(content);
-  }
-}
-
-function parseJsonFromText(text: string) {
-  const m = text.match(/```json([\s\S]*?)```/i) || text.match(/```([\s\S]*?)```/);
-  const raw = m ? m[1] : text;
-  try {
-    return JSON.parse(raw.trim());
-  } catch {
-    log("[PF] JSON parse error; full text follows", { text });
-    throw new Error("Model returned non-JSON. See Debug for raw output.");
-  }
-}
-
-function normalizeResponse(resp: any): NormalizedLLM {
-  function clamp(n: any) {
-    let v = Number(n || 0);
-    if (!isFinite(v)) v = 0;
-    return Math.max(0, Math.min(100, Math.round(v)));
-  }
-  return {
-    scores: {
-      clarity: clamp(resp?.scores?.clarity),
-      tone: clamp(resp?.scores?.tone),
-      alignment: clamp(resp?.scores?.alignment),
-    },
-    comments: Array.isArray(resp?.comments) ? resp.comments.slice(0, 12) : [],
-    global_feedback: String(resp?.global_feedback || ""),
+  const settingsBtn = firstById<HTMLButtonElement>(["settingsBtn","btnSettings","pfSettingsBtn"]);
+  if (settingsBtn) settingsBtn.onclick = ()=> {
+    const isOpen = settings && settings.style.display !== "none";
+    switchView(isOpen ? "main" : "settings");
   };
+  const backBtn = firstById<HTMLButtonElement>(["backBtn","backToMainBtn","closeSettingsBtn","homeBtn","pfBackBtn"]);
+  if (backBtn) backBtn.onclick = ()=> switchView("main");
+  window.addEventListener("keydown", e=>{ if (e.key==="Escape" && settings && settings.style.display!=="none") switchView("main"); });
 }
 
-/* ----------------------------- Results UI ----------------------------- */
-
-function barColor(v: number) {
-  if (v >= 80) return "#16a34a"; // green
-  if (v < 50) return "#dc2626"; // red
-  return "#eab308"; // yellow
+// ===== Settings (localStorage for now) =====
+const LS_KEY = "pf.settings.v1";
+function loadSettings(){
+  try { SETTINGS = JSON.parse(localStorage.getItem(LS_KEY) || "{}"); } catch { SETTINGS = {}; }
 }
-function scoreBar(label: string, val: number) {
-  const pct = Math.max(0, Math.min(100, val | 0));
-  const c = barColor(pct);
-  return `<div style="display:flex;justify-content:space-between;font-size:12px;margin-top:6px;"><span>${label}</span><span>${pct}</span></div>
-          <div style="width:100%;height:14px;background:#e5e7eb;border-radius:999px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${c};"></div></div>`;
+function saveSettings(){ localStorage.setItem(LS_KEY, JSON.stringify(SETTINGS)); }
+
+// ===== Persona UI =====
+function selectInitialSet(){
+  const desired = SETTINGS.selectedSetId || ALL_SETS[0]?.id;
+  ACTIVE_SET = ALL_SETS.find(s=>s.id===desired) || ALL_SETS[0] || null;
+  const enabled = SETTINGS.personaEnabled || {};
+  ACTIVE_PERSONAS = ACTIVE_SET?.personas.map(p=>({ ...p, enabled: enabled[p.id] ?? true })) || [];
 }
 
-function addResultCard(persona: Persona, data: NormalizedLLM, unmatched: Array<{ quote: string; comment: string }>) {
-  const host = byId("results");
-  if (!host) return;
-  const card = document.createElement("div");
-  card.className = "card";
-  card.style.marginBottom = "10px";
-  const s = data.scores || { clarity: 0, tone: 0, alignment: 0 };
-  card.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-      <div style="display:flex;align-items:center;gap:8px;">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${persona.color};"></span>
-        <strong>${escapeHtml(persona.name)}</strong>
-      </div>
-      <span class="badge badge-done">done</span>
-    </div>
-    ${scoreBar("Clarity", s.clarity)}${scoreBar("Tone", s.tone)}${scoreBar("Alignment", s.alignment)}
-    <div style="margin-top:8px;"><em>${escapeHtml(data.global_feedback)}</em></div>
-    ${
-      unmatched && unmatched.length
-        ? `
-      <div style="margin-top:8px;">
-        <div style="font-weight:600;margin-bottom:4px;">Unmatched quotes (not inserted):</div>
-        <ul style="margin:0 0 0 16px;padding:0;list-style:disc;">
-          ${(unmatched || [])
-            .slice(0, 6)
-            .map(
-              (u) =>
-                `<li><span style="color:#6b7280">"${escapeHtml(
-                  u.quote.slice(0, 160)
-                )}${u.quote.length > 160 ? "…" : ""}"</span><br/><span>${escapeHtml(u.comment)}</span></li>`
-            )
-            .join("")}
-        </ul>
-      </div>`
-        : ""
+function renderPersonaControls(){
+  const setSelect = firstById<HTMLSelectElement>(["personaSetSelect","personaSet","pfPersonaSet"]) || createSetSelect();
+  setSelect.innerHTML = "";
+  for (const s of ALL_SETS){
+    const opt = document.createElement("option");
+    opt.value = s.id; opt.textContent = s.name;
+    if (ACTIVE_SET?.id===s.id) opt.selected = true;
+    setSelect.appendChild(opt);
+  }
+  setSelect.onchange = ()=>{
+    SETTINGS.selectedSetId = setSelect.value; saveSettings();
+    selectInitialSet(); renderPersonaList();
+  };
+  renderPersonaList();
+}
+
+function createSetSelect(): HTMLSelectElement {
+  const host = firstById<HTMLDivElement>(["personaControls","personaControlBar","pfPersonaBar"]) || document.body;
+  const sel = document.createElement("select");
+  sel.id = "personaSetSelect"; sel.className = "pf-select";
+  host.appendChild(sel);
+  return sel;
+}
+
+function renderPersonaList(){
+  const list = firstById<HTMLDivElement>(["personaChecklist","personaList","pfPersonaList"]) || createPersonaListMount();
+  list.innerHTML = "";
+  for (const p of ACTIVE_PERSONAS){
+    const row = document.createElement("label");
+    row.className = "pf-row pf-persona-row";
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = !!p.enabled;
+    cb.onchange = ()=>{ p.enabled = cb.checked; SETTINGS.personaEnabled = SETTINGS.personaEnabled || {}; SETTINGS.personaEnabled[p.id] = !!p.enabled; saveSettings(); };
+
+    const sw = document.createElement("span");
+    sw.className = "pf-swatch"; if (p.color) sw.style.background = p.color;
+
+    const nm = document.createElement("span");
+    nm.className = "pf-persona-name"; nm.textContent = p.name;
+
+    row.appendChild(cb); row.appendChild(sw); row.appendChild(nm);
+    list.appendChild(row);
+  }
+}
+
+function createPersonaListMount(): HTMLDivElement {
+  const host = firstById<HTMLDivElement>(["personaControls","personaControlBar","pfPersonaBar"]) || document.body;
+  const div = document.createElement("div"); div.id="personaChecklist"; div.className="pf-list";
+  host.appendChild(div); return div;
+}
+
+// ===== Buttons =====
+function wireButtons(){
+  const runBtn = firstById<HTMLButtonElement>(["runBtn","btnRun","pfRun"]); if (runBtn) runBtn.onclick = ()=>void runAllEnabledPersonas();
+  const retryBtn = firstById<HTMLButtonElement>(["retryBtn","btnRetry","pfRetry"]); if (retryBtn) retryBtn.onclick = ()=>void runAllEnabledPersonas();
+  const exportBtn = firstById<HTMLButtonElement>(["exportBtn","btnExport","pfExport"]); if (exportBtn) exportBtn.onclick = ()=>void exportReport();
+
+  const clearBtn = firstById<HTMLButtonElement>(["clearBtn","btnClear","pfClear"]); if (clearBtn) clearBtn.onclick = ()=>void clearOurCommentsOnly();
+
+  // Clear ALL Comments — fully wired
+  const clearAllBtn = firstById<HTMLButtonElement>(["clearAllBtn","btnClearAll","pfClearAll"]);
+  if (clearAllBtn){
+    clearAllBtn.onclick = async ()=>{
+      const ok = await confirmAsync("Delete ALL comments in the document?");
+      if (!ok) return;
+      try { const n = await clearAllComments(); toast(n>0 ? `Deleted ${n} comment(s).` : "No comments found."); }
+      catch(e){ console.error(e); toast("Failed to clear comments"); }
+    };
+  }
+
+  const debugBtn = firstById<HTMLButtonElement>(["debugBtn","btnDebug","pfDebug"]);
+  const debugPanel = firstById<HTMLDivElement>(["debugPanel","pfDebugPanel"]);
+  if (debugBtn && debugPanel) debugBtn.onclick = ()=> show(debugPanel, debugPanel.style.display==="none");
+}
+
+// ===== Bootstrap =====
+Office.onReady(async ()=>{
+  try{
+    document.body.style.minWidth = "520px";
+    initViewSwitching();
+    loadSettings();
+    selectInitialSet();
+    renderPersonaControls();
+    wireButtons();
+    toast("UI initialized");
+  }catch(e){ console.error(e); toast("Init error"); }
+});
+
+// ===== Core run loop =====
+async function runAllEnabledPersonas(){
+  if (!ACTIVE_SET) return toast("No persona set selected");
+  const enabled = ACTIVE_PERSONAS.filter(p=>p.enabled);
+  if (enabled.length===0) return toast("Enable at least one persona");
+
+  const docText = await getDocumentText();
+  if (!docText?.trim()) return toast("Document appears empty");
+
+  const progress = firstById<HTMLDivElement>(["progBar","progressBar","pfProgress"]);
+  let i=0;
+  for (const persona of enabled){
+    text(progress, `Running ${persona.name} (${++i}/${enabled.length})…`);
+    try{
+      const out = await reviewWithPersona(persona, docText);
+      await insertComments(persona, out, docText);
+      appendResults(persona, out);
+    }catch(err){
+      console.error(err); appendError(persona, err as Error);
     }
-  `;
-  host.appendChild(card);
+  }
+  text(progress, "Done");
 }
 
-/* ----------------------------- Report export (PDF via print) ----------------------------- */
+// ===== Providers =====
+async function reviewWithPersona(persona: Persona, documentText: string): Promise<FeedbackJSON>{
+  const provider = SETTINGS.provider || { kind:"openrouter", model:"gpt-4o-mini", apiKey:"" } as ProviderConfig;
 
-function buildReportHtml() {
-  const setName = currentSet().name;
-  const rows = LAST_RESULTS.map((r) => {
-    const persona = currentSet().personas.find((p) => p.id === r.personaId);
-    const color = persona?.color || "#93c5fd";
-    const s = r.scores || { clarity: 0, tone: 0, alignment: 0 };
-    return `
-      <section style="border:1px solid #e5e7eb;border-radius:10px;padding:14px;margin:10px 0;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-          <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};"></span>
-          <strong>${escapeHtml(r.personaName)}</strong>
-          <span style="margin-left:auto;padding:2px 8px;border-radius:999px;background:#e5ffe8;border:1px solid #a7f3d0;">${r.status}</span>
-        </div>
-        ${scoreBar("Clarity", s.clarity)}${scoreBar("Tone", s.tone)}${scoreBar("Alignment", s.alignment)}
-        ${r.global_feedback ? `<div style="margin-top:8px;"><em>${escapeHtml(r.global_feedback)}</em></div>` : ""}
-      </section>`;
-  }).join("");
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Persona Feedback Report</title>
-  <style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; padding:20px; max-width:800px; margin:0 auto;} h1{font-size:20px;margin:0 0 10px;} .muted{color:#6b7280}</style>
-  </head><body>
-    <h1>Persona Feedback Report</h1>
-    <div class="muted">${new Date().toLocaleString()} • Set: ${escapeHtml(setName)}</div>
-    ${rows || "<p class='muted'>No results.</p>"}
-    <script>setTimeout(()=>window.print(), 300);</script>
-  </body></html>`;
+  const messages: ChatMessage[] = [
+    { role: "system", content: persona.system },
+    { role: "user", content:
+`${persona.instruction}
+
+Return ONLY valid JSON in the shape:
+{"scores":{"<metric>":1-5},"global_feedback":"string","comments":[{"quote":"string","comment":"string","category":"optional"}]}
+
+Document:
+<<<DOC
+${documentText}
+DOC>>>`
+    }
+  ];
+
+  let raw = "";
+  if (provider.kind==="openrouter"){
+    if (!provider.apiKey){
+      const k = window.prompt("Enter your OpenRouter API key (kept in-memory for this session):","") || "";
+      if (!k) throw new Error("No OpenRouter API key provided");
+      provider.apiKey = k; SETTINGS.provider = provider; saveSettings();
+    }
+    raw = await callOpenRouter(provider.apiKey, provider.model, messages);
+  } else {
+    raw = await callOllama(provider.host || "http://127.0.0.1:11434", provider.model, messages);
+  }
+
+  const json = coerceJSON(raw); validateOutput(json); return json;
 }
 
-function handleExportPDF() {
-  const html = buildReportHtml();
-  const blob = new Blob([html], { type: "text/html" });
-  const url = URL.createObjectURL(blob);
-  window.open(url, "_blank");
+async function callOpenRouter(apiKey:string, model:string, messages:ChatMessage[]): Promise<string>{
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json", Authorization:`Bearer ${apiKey}`, "HTTP-Referer":"https://example.com", "X-Title":"Word Persona Feedback" },
+    body: JSON.stringify({ model, messages, temperature:0.2 })
+  });
+  if (!res.ok) throw new Error(`OpenRouter error ${res.status}`);
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || "";
 }
 
-/* ----------------------------- Results state ----------------------------- */
+async function callOllama(host:string, model:string, messages:ChatMessage[]): Promise<string>{
+  const res = await fetch(`${host.replace(/\/$/,"")}/api/chat`, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ model, messages, options:{ temperature:0.2 }}) });
+  if (!res.ok) throw new Error(`Ollama error ${res.status}`);
+  const data = await res.json();
+  return data.message?.content || "";
+}
 
-function upsert<T extends { personaId: string }>(arr: T[], item: T) {
-  const i = arr.findIndex((x) => x.personaId === item.personaId);
-  if (i >= 0) arr[i] = item;
-  else arr.push(item);
+// ===== JSON coercion/validation =====
+function coerceJSON(s:string): FeedbackJSON{
+  const m = s.match(/\{[\s\S]*\}$/);
+  const body = m ? m[0] : s;
+  try { return JSON.parse(body); }
+  catch {
+    const fixed = body.replace(/[\u201C\u201D]/g,'"').replace(/,\s*}/g,"}").replace(/,\s*]/g,"]");
+    return JSON.parse(fixed);
+  }
 }
-function upsertResult(r: RunResult) {
-  upsert(LAST_RESULTS, r);
+
+function validateOutput(o:any): asserts o is FeedbackJSON{
+  if (!o || typeof o!=="object") throw new Error("Model returned no JSON");
+  if (!o.scores || typeof o.scores!=="object") o.scores = {};
+  if (typeof o.global_feedback!=="string") o.global_feedback = "";
+  if (!Array.isArray(o.comments)) o.comments = [];
+  for (const k of Object.keys(o.scores)){
+    const v = Number(o.scores[k]);
+    if (!Number.isFinite(v)) delete o.scores[k];
+    else o.scores[k] = Math.max(1, Math.min(5, Math.round(v)));
+  }
+  o.comments = o.comments.map((c:any)=>({ quote:String(c.quote||"").slice(0,240), comment:String(c.comment||""), category: c.category? String(c.category): undefined }));
 }
+
+// ===== Word integration =====
+async function getDocumentText(): Promise<string>{
+  return Word.run(async (context)=>{
+    const body = context.document.body; body.load("text"); await context.sync(); return body.text || "";
+  });
+}
+
+async function insertComments(persona: Persona, out: FeedbackJSON, docText: string){
+  if (!out.comments?.length) return;
+  const prefix = makePersonaPrefix(persona);
+  await Word.run(async (context)=>{
+    for (const c of out.comments){
+      const quote = c.quote?.trim();
+      let range: Word.Range | null = null;
+      if (quote && quote.length>=3){
+        const results = context.document.body.search(quote, { matchCase:false, matchWholeWord:false });
+        results.load("items"); await context.sync();
+        if (results.items.length>0) range = results.items[0];
+        else {
+          const snippet = fuzzySnippet(quote, docText);
+          if (snippet){
+            const r2 = context.document.body.search(snippet, { matchCase:false, matchWholeWord:false });
+            r2.load("items"); await context.sync();
+            if (r2.items.length>0) range = r2.items[0];
+          }
+        }
+      }
+      const payload = `${prefix} ${c.comment}${c.category?` [${c.category}]`:""}`;
+      if (range) range.insertComment(payload);
+      else context.document.body.getRange("start").insertComment(`${prefix} (unmatched) ${payload}`);
+      await context.sync();
+    }
+  });
+}
+
+function makePersonaPrefix(p: Persona){ return `🟦 ${p.name}`; }
+
+function fuzzySnippet(quote:string, docText:string): string | null{
+  if (quote.length<=30) return quote;
+  const mid = Math.floor(quote.length/2);
+  const snip = quote.slice(Math.max(0, mid-15), mid+15);
+  return docText.includes(snip) ? snip : null;
+}
+
+async function clearAllComments(): Promise<number>{
+  return Word.run(async (context)=>{
+    const comments = context.document.comments; comments.load("items"); await context.sync();
+    const n = comments.items.length; for (const c of comments.items) c.delete(); await context.sync(); return n;
+  });
+}
+
+async function clearOurCommentsOnly(): Promise<number>{
+  return Word.run(async (context)=>{
+    const comments = context.document.comments; comments.load("items"); await context.sync();
+    let n=0;
+    for (const c of comments.items){ (c as any).content.load?.("text"); }
+    await context.sync();
+    for (const c of comments.items){
+      const t = (c as any).content?.text ?? "";
+      if (/^🟦 /.test(t)) { c.delete(); n++; }
+    }
+    await context.sync(); return n;
+  });
+}
+
+// ===== Results & export =====
+function appendResults(persona: Persona, out: FeedbackJSON){
+  const container = firstById<HTMLDivElement>(["results","pfResults"]); if (!container) return;
+  const card = document.createElement("div"); card.className = "pf-card";
+  const h = document.createElement("div"); h.className = "pf-card-title"; h.textContent = persona.name; card.appendChild(h);
+  if (out.scores && Object.keys(out.scores).length){
+    const table = document.createElement("table"); table.className="pf-scores"; const tb=document.createElement("tbody");
+    for (const [k,v] of Object.entries(out.scores)){ const tr=document.createElement("tr"); const td1=document.createElement("td"); const td2=document.createElement("td"); td1.textContent=k; td2.textContent=String(v); tr.append(td1,td2); tb.appendChild(tr); }
+    table.appendChild(tb); card.appendChild(table);
+  }
+  if (out.global_feedback){ const p=document.createElement("p"); p.className="pf-global"; p.textContent=out.global_feedback; card.appendChild(p); }
+  container.appendChild(card);
+}
+
+function appendError(persona: Persona, err: Error){
+  const container = firstById<HTMLDivElement>(["results","pfResults"]); if (!container) return;
+  const card = document.createElement("div"); card.className="pf-card pf-error"; card.textContent = `${persona.name}: ${err.message}`; container.appendChild(card);
+}
+
+function exportReport(){
+  const container = firstById<HTMLDivElement>(["results","pfResults"]);
+  const html = `
+  <html><head><meta charset="utf-8"/><title>Feedback Report</title>
+    <style>body{font:14px system-ui,Segoe UI,Roboto,Arial} h1{font-size:20px;margin:0 0 12px} .card{border:1px solid #ddd;border-radius:8px;padding:12px;margin:12px 0} .scores td{padding:2px 6px}</style>
+  </head><body><h1>Feedback Report</h1>${container?container.innerHTML:"<p>No results</p>"}</body></html>`;
+  const w = window.open("", "_blank"); if (!w) return; w.document.write(html); w.document.close(); w.focus(); w.print();
+}
+
+// expose for debugging
+(Object.assign(window as any, { _pf: { runAllEnabledPersonas, clearAllComments, clearOurCommentsOnly }}) as any);
